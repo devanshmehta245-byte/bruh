@@ -56,6 +56,11 @@ so engineering **stress = load_N / 24** (MPa) and **strain = disp_mm / 47.75**.
 
 ---
 
+> **Want the full theory?** See [`EXPLANATION.md`](EXPLANATION.md) for a
+> step-by-step walkthrough of the code and **every equation** used (stress–strain
+> definitions, feature formulas, the ML/ridge regression, and the first-order +
+> Arrhenius service-life kinetics).
+
 ## 2. Quick start
 
 **Everything is in a single file: `srp_pipeline.m`.**
