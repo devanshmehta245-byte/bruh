@@ -30,6 +30,9 @@ function results = main(varargin)
     here = fileparts(mfilename('fullpath'));
     addpath(here);
 
+    % GNU Octave: make the io package (xlsx read/write) available if installed.
+    try, pkg load io; catch; end %#ok<*CTCH>
+
     cfg = srp_config();
 
     % ----- parse options

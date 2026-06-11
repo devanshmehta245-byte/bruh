@@ -2,6 +2,8 @@
 data/*.csv
 data/*.txt
 data/*.dat
+data/*.xlsx
+data/*.xls
 
 # Pipeline outputs
 results/*.png

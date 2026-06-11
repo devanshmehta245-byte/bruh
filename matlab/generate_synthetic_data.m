@@ -62,7 +62,12 @@ function generate_synthetic_data(cfg, opts)
                     sigM = max(0.05, g(sigM_base) * rfac_sig);
                     [disp_mm, load_N, t_min] = local_curve( ...
                         epsM, sigM, cfg, v, opts.nPointsCurve, opts.noise);
-                    fname = sprintf('T%d_d%d_v%d_s%d.csv', T, d, v, s);
+                    if strcmpi(local_field(cfg, 'syntheticFormat', 'xlsx'), 'csv')
+                        ext = '.csv';
+                    else
+                        ext = '.xlsx';
+                    end
+                    fname = sprintf('T%d_d%d_v%d_s%d%s', T, d, v, s, ext);
                     local_write(fullfile(cfg.dataDir, fname), ...
                         disp_mm, load_N, t_min);
                     nWritten = nWritten + 1;
@@ -91,9 +96,32 @@ function [disp_mm, load_N, t_min] = local_curve(epsM, sigM, cfg, v, N, noise)
 end
 
 function local_write(fpath, disp_mm, load_N, t_min)
-    fid = fopen(fpath, 'w');
-    if fid < 0; error('Cannot write %s', fpath); end
-    fprintf(fid, 'disp_mm,load_N,t_min\n');
-    fprintf(fid, '%.6f,%.6f,%.6f\n', [disp_mm, load_N, t_min]');
-    fclose(fid);
+    [~, ~, ext] = fileparts(fpath);
+    header = {'disp_mm', 'load_N', 't_min'};
+    M = [disp_mm, load_N, t_min];
+    if any(strcmpi(ext, {'.xlsx', '.xls'}))
+        C = [header; num2cell(M)];
+        wrote = false;
+        if exist('writecell', 'file')          % MATLAB R2019a+
+            try, writecell(C, fpath); wrote = true; catch; end
+        end
+        if ~wrote && exist('xlswrite', 'file')  % Octave io / older MATLAB
+            try, pkg load io; catch; end %#ok<*CTCH>
+            try, xlswrite(fpath, C); wrote = true; catch; end
+        end
+        if ~wrote
+            error(['Cannot write xlsx (need MATLAB writecell or the Octave ' ...
+                   '"io" package). Set cfg.syntheticFormat = ''csv''.']);
+        end
+    else
+        fid = fopen(fpath, 'w');
+        if fid < 0; error('Cannot write %s', fpath); end
+        fprintf(fid, '%s,%s,%s\n', header{:});
+        fprintf(fid, '%.6f,%.6f,%.6f\n', M');
+        fclose(fid);
+    end
+end
+
+function v = local_field(s, name, def)
+    if isfield(s, name); v = s.(name); else; v = def; end
 end

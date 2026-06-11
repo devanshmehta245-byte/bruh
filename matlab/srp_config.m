@@ -39,7 +39,11 @@ function cfg = srp_config()
     cfg.col.time = {'t_min', 'time', 'time_min', 't', 'time_s'};
     % If a file has no header, assume this column order:
     cfg.defaultColumnOrder = {'disp_mm', 'load_N', 't_min'};
-    cfg.fileExtensions = {'.csv', '.txt', '.dat'};
+    % File types scanned in cfg.dataDir.  Real data is .xlsx; .csv/.txt/.dat
+    % are also supported.
+    cfg.fileExtensions = {'.xlsx', '.xls', '.csv', '.txt', '.dat'};
+    % Format written by generate_synthetic_data ('xlsx' or 'csv').
+    cfg.syntheticFormat = 'xlsx';
 
     % --------------------------------------------- feature-extraction settings
     % Fraction of the strain-at-peak used as the upper bound of the initial

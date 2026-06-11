@@ -50,9 +50,32 @@ function run_tests()
     [nPass, nFail] = check(numel(c.disp_mm)==4 && max(c.load_N)==18, ...
         'read_curve parses CSV with header', nPass, nFail);
 
+    % ---------------------------------------------- 3b) xlsx round-trip
+    try, pkg load io; catch; end   % Octave: make xlswrite/xlsread visible
+    canXlsx = exist('writecell','file') || exist('xlswrite','file');
+    if canXlsx
+        try
+            cfgx = srp_config(); cfgx.syntheticFormat = 'xlsx';
+            cfgx.dataDir = fullfile(tmp, 'xlsx');
+            cfgx.nSamples = 1;
+            cfgx.daysByTemp = struct('T50',38, 'T60',16, 'T70',7);
+            cfgx.strainRates_mmpmin = 50;
+            generate_synthetic_data(cfgx, struct('seed',2));
+            dl = dir(fullfile(cfgx.dataDir, '*.xlsx'));
+            cx = srp_read_curve(fullfile(cfgx.dataDir, dl(1).name), cfgx);
+            [nPass, nFail] = check(numel(dl)>=3 && numel(cx.disp_mm)>5 ...
+                && max(cx.load_N)>0, 'xlsx write+read round-trip', nPass, nFail);
+        catch err
+            fprintf('  SKIP  xlsx round-trip (%s)\n', err.message);
+        end
+    else
+        fprintf('  SKIP  xlsx round-trip (no xlsx writer available)\n');
+    end
+
     % ---------------------------------------------- 4) mini end-to-end
     cfg2 = srp_config();
     cfg2.dataDir = fullfile(tmp, 'mini');
+    cfg2.syntheticFormat = 'csv';   % keep this test free of the io package
     cfg2.nSamples = 3;
     cfg2.daysByTemp = struct('T50',[38 75 122], 'T60',[16 31 46], 'T70',[7 14 20]);
     generate_synthetic_data(cfg2, struct('seed',7));

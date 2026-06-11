@@ -34,12 +34,18 @@ The campaign described:
 * **Strain rates:** 5, 50, 500 mm/min
 * **Replicates:** 10 samples per condition
 
-Each file contains (header optional, delimiter auto-detected) the three columns
-from the UTM:
+Files are **`.xlsx`** spreadsheets (one test per file, data on the first
+worksheet). `.xls`, `.csv`, `.txt` and `.dat` are also accepted. Each file
+contains the three columns from the UTM (header row optional; column order /
+names auto-detected):
 
 ```
 disp_mm , load_N , t_min
 ```
+
+> **GNU Octave only:** reading `.xlsx` needs the `io` package
+> (`pkg install -forge io`, or `apt install octave-io`). `main` loads it
+> automatically. **MATLAB needs nothing extra.**
 
 **Specimen geometry** (used to convert load/displacement → stress/strain):
 
@@ -86,6 +92,12 @@ run_tests
 ---
 
 ## 3. How it works
+
+### 3.0 Reading files (`srp_read_curve.m`)
+Reads `.xlsx`/`.xls` (MATLAB `readcell`; Octave `xlsread` from the `io`
+package) and delimited text. Header row and column order are auto-detected
+from the aliases in `srp_config` (`disp_mm`/`displacement`, `load_N`/`force`,
+`t_min`/`time`).
 
 ### 3.1 Feature extraction (`srp_extract_features.m`)
 For every test the load–displacement curve is converted to engineering
