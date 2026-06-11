@@ -44,8 +44,8 @@ disp_mm , load_N , t_min
 ```
 
 > **GNU Octave only:** reading `.xlsx` needs the `io` package
-> (`pkg install -forge io`, or `apt install octave-io`). `main` loads it
-> automatically. **MATLAB needs nothing extra.**
+> (`pkg install -forge io`, or `apt install octave-io`). `srp_pipeline` loads
+> it automatically. **MATLAB needs nothing extra.**
 
 **Specimen geometry** (used to convert load/displacement → stress/strain):
 
@@ -58,32 +58,33 @@ so engineering **stress = load_N / 24** (MPa) and **strain = disp_mm / 47.75**.
 
 ## 2. Quick start
 
-```matlab
-cd matlab
+**Everything is in a single file: `srp_pipeline.m`.**
 
+```matlab
 % Run everything on a synthetic example dataset (auto-generated if data/ empty):
-results = main();
+results = srp_pipeline();
 
 % Run on YOUR data:
-results = main('DataDir', '/path/to/your/utm/files');
+results = srp_pipeline('DataDir', '/path/to/your/utm/files');
 
 % Options:
-results = main('ServiceTemp', 30, ...        % service/storage temperature (°C)
-               'HealthProperty', 'sigma_max');% property whose decay defines EOL
+results = srp_pipeline('ServiceTemp', 30, ...         % service temperature (°C)
+                       'HealthProperty', 'sigma_max');% property defining EOL
+
+% Built-in self-checks:
+srp_pipeline('test');
+
+% Just the default settings struct (to inspect/edit):
+cfg = srp_pipeline('config');
 ```
 
+By default `data/` and `results/` are created next to `srp_pipeline.m`.
 Outputs are printed to the console and saved in `results/`:
 
 * `degradation_curves.png` — health property vs ageing time with kinetic fits
 * `ml_parity.png` — ML predicted vs measured (cross-validated)
 * `arrhenius.png` — `ln(t_fail)` vs `1/T` with the service-temperature point
 * `service_life_summary.txt` — the headline numbers
-
-Run the self-checks with:
-
-```matlab
-run_tests
-```
 
 > Works in **MATLAB** (uses the Statistics & Machine Learning Toolbox when
 > available) and in **GNU Octave** (falls back to a dependency-free polynomial
@@ -93,13 +94,13 @@ run_tests
 
 ## 3. How it works
 
-### 3.0 Reading files (`srp_read_curve.m`)
+### 3.0 Reading files
 Reads `.xlsx`/`.xls` (MATLAB `readcell`; Octave `xlsread` from the `io`
 package) and delimited text. Header row and column order are auto-detected
 from the aliases in `srp_config` (`disp_mm`/`displacement`, `load_N`/`force`,
 `t_min`/`time`).
 
-### 3.1 Feature extraction (`srp_extract_features.m`)
+### 3.1 Feature extraction
 For every test the load–displacement curve is converted to engineering
 stress–strain and the following mechanical features are computed:
 
@@ -113,7 +114,7 @@ stress–strain and the following mechanical features are computed:
 | `secant50_MPa` | secant modulus at 50 % of peak stress               |
 | `strain_rate`  | nominal cross-head speed (mm/min)                   |
 
-### 3.2 Machine-learning model (`srp_train_model.m`)
+### 3.2 Machine-learning model
 A regression model predicts the chosen **health property** from the ageing
 conditions `[temperature, days, strain_rate]`. Several learners are trained and
 **k-fold cross-validated**, and the best (lowest CV-RMSE) is kept:
@@ -124,7 +125,7 @@ conditions `[temperature, days, strain_rate]`. Several learners are trained and
 * Robust linear regression
 * Polynomial least-squares (always available — the Octave / no-toolbox fallback)
 
-### 3.3 Service-life prediction (`srp_service_life.m`)
+### 3.3 Service-life prediction
 Pure ML cannot extrapolate from the accelerated temperatures (50–70 °C) down to
 the in-service temperature (~25 °C), so service life is obtained with the
 **accelerated-ageing (Arrhenius) method**, optionally denoised by the ML model:
@@ -148,9 +149,10 @@ extrapolation.
 
 ---
 
-## 4. Configuration — `srp_config.m`
+## 4. Configuration
 
-All tunables live in one place. The most important:
+All tunables live in the `srp_config` section near the top of `srp_pipeline.m`
+(get a copy with `cfg = srp_pipeline('config')`). The most important:
 
 | field                  | default        | meaning                                   |
 |------------------------|----------------|-------------------------------------------|
@@ -174,34 +176,28 @@ All tunables live in one place. The most important:
 ## 5. File map
 
 ```
-matlab/
-  main.m                     % run the whole pipeline
-  srp_config.m               % all parameters
-  srp_parse_filename.m       % T..d..v..s.. -> conditions
-  srp_read_curve.m           % robust delimited-file reader
-  srp_extract_features.m     % stress-strain -> mechanical features
-  srp_build_dataset.m        % scan folder -> dataset
-  srp_aggregate.m            % mean/std over replicates per condition
-  srp_train_model.m          % train + cross-validate ML regressors
-  srp_service_life.m         % global kinetic + Arrhenius service life
-  srp_predict_service_life.m % service life at an arbitrary temperature
-  srp_plot_results.m         % figures
-  generate_synthetic_data.m  % example dataset matching the naming scheme
-  run_tests.m                % self-checks
-data/                        % put your UTM files here
-results/                     % generated figures + summary
+srp_pipeline.m   % EVERYTHING (config, file reading, feature extraction,
+                 %  ML training, Arrhenius service-life, plots, synthetic
+                 %  data generator and self-tests) in one file
+data/            % put your UTM files here
+results/         % generated figures + summary
 ```
+
+Inside `srp_pipeline.m` the logic is organised in clearly-labelled sections:
+configuration, filename parsing, file reading, feature extraction, dataset
+assembly, aggregation, ML model, service-life prediction, plotting, synthetic
+data generator and the self-test.
 
 ---
 
 ## 6. Notes & assumptions
 
-* The synthetic generator (`generate_synthetic_data.m`) creates physically
+* The synthetic generator (the `generate_synthetic_data` section) creates physically
   plausible curves (embrittlement with ageing, strain-rate hardening, Arrhenius
   kinetics with a known `Ea = 80 kJ/mol`) **only so the pipeline is runnable and
   testable**. Replace `data/` with your measured files — nothing else changes.
 * Stress is *engineering* stress (`load/A0`); switch to true stress in
-  `srp_extract_features.m` if your gauge cross-section change is significant.
+  the feature-extraction section if your gauge cross-section change is significant.
 * Service-life extrapolation assumes a single dominant degradation mechanism
   obeying Arrhenius behaviour across 25–70 °C, which is standard practice for
   SRP shelf-life assessment but should be validated against your chemistry.
