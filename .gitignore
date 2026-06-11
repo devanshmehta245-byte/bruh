@@ -1,0 +1,20 @@
+# Generated synthetic data (regenerate with generate_synthetic_data)
+data/*.csv
+data/*.txt
+data/*.dat
+
+# Pipeline outputs
+results/*.png
+results/*.fig
+results/*.txt
+
+# Octave/MATLAB cruft
+octave-workspace
+*.asv
+*.mexa64
+*.mexw64
+*.mexmaci64
+
+# Keep the folders
+!data/.gitkeep
+!results/.gitkeep
