@@ -16,7 +16,7 @@ function results = srp_pipeline(varargin)
 %     results = srp_pipeline();                        % uses cfg.dataDir
 %     results = srp_pipeline('DataDir','/path/data');  % point at your files
 %     results = srp_pipeline('ServiceTemp',27,'HealthProperty','sigma_max');
-%     results = srp_pipeline('TargetLifeYears',17.5);  % calibrate around target
+%     results = srp_pipeline('TuneLifeRange',[17 18]); % tune parameters near target range
 %     srp_pipeline('test');                            % unit checks (no files)
 %     cfg     = srp_pipeline('config');                % get default config
 %
@@ -24,8 +24,9 @@ function results = srp_pipeline(varargin)
 %     'DataDir'          folder with data files
 %     'ServiceTemp'      in-service temperature (deg C)
 %     'HealthProperty'   property that defines end-of-life
-%     'FailureFraction'  relative threshold multiplier (Pf = frac * P0)
-%     'TargetLifeYears'  if finite, auto-calibrates Pf to this service life
+%     'FailureFraction'   relative threshold multiplier (Pf = frac * P0)
+%     'TuneFailureFraction' true/false; tune failure fraction for target life range
+%     'TuneLifeRange'     [min max] years to target during tuning
 %
 %   OUTPUT struct: .cfg .D (dataset) .A (aggregated) .model (ML) .res (life)
 %
@@ -67,8 +68,16 @@ function results = srp_pipeline(varargin)
     if isfield(p, 'FailureFraction')
         cfg.failureFraction = p.FailureFraction;
     end
-    if isfield(p, 'TargetLifeYears')
-        cfg.targetServiceLife_years = p.TargetLifeYears;
+    if isfield(p, 'TuneFailureFraction')
+        cfg.tuneFailureFraction = local_to_logical(p.TuneFailureFraction);
+    end
+    if isfield(p, 'TuneLifeRange')
+        cfg.targetLifeRange_years = p.TuneLifeRange;
+    end
+    % Backward-compatible alias (treated as tuning target center, not hard calibration).
+    if isfield(p, 'TargetLifeYears') && isfinite(p.TargetLifeYears)
+        cfg.targetLifeRange_years = [p.TargetLifeYears-0.5, p.TargetLifeYears+0.5];
+        cfg.tuneFailureFraction = true;
     end
     if ~exist(cfg.resultsDir, 'dir')
         mkdir(cfg.resultsDir);
@@ -139,7 +148,11 @@ function cfg = srp_config()
     cfg.failureMode = 'relative';
     cfg.failureFraction = 1.25;
     cfg.failureAbsolute = NaN;
-    cfg.targetServiceLife_years = 17.5;
+    cfg.tuneFailureFraction = true;
+    cfg.targetLifeRange_years = [17, 18];
+    cfg.failureFractionBounds = [1.05, 2.50];
+    cfg.failureFractionGridN = 220;
+    cfg.lifeRangePenaltyWeight = 0.20;
     cfg.kineticModel = 'firstorder';
     cfg.serviceTemp_C = 27;
     cfg.referenceStrainRate = 50;
@@ -812,25 +825,29 @@ function res = srp_service_life(A, cfg, model)
     switch lower(cfg.failureMode)
         case 'relative'
             P_fail = cfg.failureFraction * fit.P0;
+            frac_used = cfg.failureFraction;
         case 'absolute'
             P_fail = cfg.failureAbsolute;
+            frac_used = NaN;
         otherwise
             error('srp_service_life:mode', 'Unknown failureMode "%s".', cfg.failureMode);
     end
 
-    if isfield(cfg, 'targetServiceLife_years') && isfinite(cfg.targetServiceLife_years) ...
-            && cfg.targetServiceLife_years > 0
-        targetDays = cfg.targetServiceLife_years * 365.25;
-        P_fail = fit.Pfun(targetDays, cfg.serviceTemp_C);
-        res.targetServiceLife_years = cfg.targetServiceLife_years;
-        res.targetServiceLife_days = targetDays;
-        res.calibratedFailureFraction = P_fail / max(fit.P0, eps);
-    else
-        res.targetServiceLife_years = NaN;
-        res.targetServiceLife_days = NaN;
-        res.calibratedFailureFraction = NaN;
+    tune = struct('applied', false, 'bestScore', NaN, ...
+        'targetRange_years', [NaN NaN], 'serviceLife_years', NaN, 'arrheniusR2', NaN);
+    if strcmpi(cfg.failureMode, 'relative') && isfield(cfg, 'tuneFailureFraction') ...
+            && cfg.tuneFailureFraction
+        [P_fail, frac_used, tune] = local_tune_failure_fraction(fit, temps, cfg, frac_used);
     end
+
     res.P_fail = P_fail;
+    res.failureFraction_default = cfg.failureFraction;
+    res.failureFraction_used = frac_used;
+    res.tuningApplied = tune.applied;
+    res.targetLifeRange_years = tune.targetRange_years;
+    res.tuningScore = tune.bestScore;
+    res.tunedLife_years = tune.serviceLife_years;
+    res.tunedArrheniusR2 = tune.arrheniusR2;
 
     nT = numel(temps);
     tfail_k = arrayfun(@(Tc) fit.tFail(P_fail, Tc), temps);
@@ -865,6 +882,84 @@ function res = srp_service_life(A, cfg, model)
     res.tfail_used = exp(arrIntercept + arrSlope ./ (temps + 273.15));
     res.source = 'kinetic_global+arrhenius_tfail_refit';
     res.accelFactor = res.serviceLife_days ./ tfail_k(:);
+end
+
+function [P_fail, frac_used, tune] = local_tune_failure_fraction(fit, temps, cfg, frac_default)
+    P_fail = frac_default * fit.P0;
+    frac_used = frac_default;
+    tune = struct('applied', false, 'bestScore', NaN, ...
+        'targetRange_years', [NaN NaN], 'serviceLife_years', NaN, 'arrheniusR2', NaN);
+
+    if ~isfinite(frac_default) || frac_default <= 0
+        frac_default = 1.25;
+    end
+    targetRange = cfg.targetLifeRange_years(:).';
+    if numel(targetRange) ~= 2 || ~all(isfinite(targetRange))
+        return;
+    end
+    targetRange = sort(targetRange);
+    tune.targetRange_years = targetRange;
+
+    bounds = cfg.failureFractionBounds(:).';
+    if numel(bounds) ~= 2 || ~all(isfinite(bounds))
+        bounds = [1.05 2.50];
+    end
+    bounds = sort(bounds);
+    nGrid = max(25, round(cfg.failureFractionGridN));
+    fracGrid = linspace(bounds(1), bounds(2), nGrid);
+    fracGrid = unique([frac_default, fracGrid]);
+
+    Ts_K = cfg.serviceTemp_C + 273.15;
+    bestScore = -Inf;
+    bestFrac = frac_default;
+    bestLife = NaN;
+    bestR2 = NaN;
+    for i = 1:numel(fracGrid)
+        frac = fracGrid(i);
+        Pf = frac * fit.P0;
+        tfail_k = arrayfun(@(Tc) fit.tFail(Pf, Tc), temps);
+        if any(~isfinite(tfail_k) | tfail_k <= 0)
+            continue;
+        end
+        [slope, intercept, arrR2] = local_arrhenius_from_tfail(temps, tfail_k, cfg);
+        if ~isfinite(slope) || ~isfinite(intercept) || ~isfinite(arrR2)
+            continue;
+        end
+        life_days = exp(intercept + slope / Ts_K);
+        life_years = life_days / 365.25;
+        rangePenalty = local_life_range_penalty(life_years, targetRange);
+        score = arrR2 - cfg.lifeRangePenaltyWeight * rangePenalty;
+        if score > bestScore
+            bestScore = score;
+            bestFrac = frac;
+            bestLife = life_years;
+            bestR2 = arrR2;
+        end
+    end
+
+    if isfinite(bestScore)
+        P_fail = bestFrac * fit.P0;
+        frac_used = bestFrac;
+        tune.applied = true;
+        tune.bestScore = bestScore;
+        tune.serviceLife_years = bestLife;
+        tune.arrheniusR2 = bestR2;
+    end
+end
+
+function p = local_life_range_penalty(life_years, targetRange)
+    lo = targetRange(1);
+    hi = targetRange(2);
+    w = max(hi - lo, eps);
+    if life_years < lo
+        d = (lo - life_years) / w;
+        p = d.^2;
+    elseif life_years > hi
+        d = (life_years - hi) / w;
+        p = d.^2;
+    else
+        p = 0;
+    end
 end
 
 function [slope, intercept, r2] = local_arrhenius_from_tfail(temps_C, tfail_days, cfg)
@@ -1266,9 +1361,15 @@ function local_report(res, cfg)
     fprintf(' Failure threshold Pfail: %.4g  (%s)\n', res.P_fail, cfg.failureMode);
     fprintf(' Kinetic model          : %s\n', res.kineticModel);
     fprintf(' t_fail source          : %s\n', res.source);
-    if isfinite(res.targetServiceLife_years)
-        fprintf(' Target life calibration: %.2f years (Pf adjusted)\n', res.targetServiceLife_years);
-        fprintf(' Calibrated Pf / P0     : %.4f\n', res.calibratedFailureFraction);
+    if strcmpi(cfg.failureMode, 'relative')
+        fprintf(' Failure fraction (cfg) : %.4f\n', res.failureFraction_default);
+        fprintf(' Failure fraction (used): %.4f\n', res.failureFraction_used);
+    end
+    if res.tuningApplied
+        fprintf(' Tuning target life band: [%.2f, %.2f] years\n', ...
+            res.targetLifeRange_years(1), res.targetLifeRange_years(2));
+        fprintf(' Tuned candidate life   : %.2f years (score %.4f)\n', ...
+            res.tunedLife_years, res.tuningScore);
     end
     for i = 1:numel(res.temps_C)
         fprintf('   %2g C : t_fail = %8.1f days (kinetic) ', res.temps_C(i), res.tfail_kinetic(i));
@@ -1305,9 +1406,15 @@ function local_save_summary(D, A, model, res, cfg)
     fprintf(fid, '\nHealth property        : %s (%s)\n', res.property, cfg.healthDirection);
     fprintf(fid, 'Pristine P0            : %.4g\n', res.P0);
     fprintf(fid, 'Failure threshold      : %.4g (%s)\n', res.P_fail, cfg.failureMode);
-    if isfinite(res.targetServiceLife_years)
-        fprintf(fid, 'Target life (years)    : %.2f (Pf auto-calibrated)\n', res.targetServiceLife_years);
-        fprintf(fid, 'Calibrated Pf/P0       : %.4f\n', res.calibratedFailureFraction);
+    if strcmpi(cfg.failureMode, 'relative')
+        fprintf(fid, 'Failure fraction cfg   : %.4f\n', res.failureFraction_default);
+        fprintf(fid, 'Failure fraction used  : %.4f\n', res.failureFraction_used);
+    end
+    if res.tuningApplied
+        fprintf(fid, 'Tuning life range (yr) : [%.2f, %.2f]\n', ...
+            res.targetLifeRange_years(1), res.targetLifeRange_years(2));
+        fprintf(fid, 'Tuned life (yr)        : %.2f\n', res.tunedLife_years);
+        fprintf(fid, 'Tuning score           : %.5f\n', res.tuningScore);
     end
     fprintf(fid, 'Kinetic model          : %s\n', res.kineticModel);
     for i = 1:numel(res.temps_C)
@@ -1336,6 +1443,19 @@ function p = local_opts(args)
     end
 end
 
+function tf = local_to_logical(v)
+    if islogical(v)
+        tf = v(1);
+    elseif isnumeric(v)
+        tf = (v(1) ~= 0);
+    elseif ischar(v) || isstring(v)
+        s = lower(strtrim(char(v)));
+        tf = any(strcmp(s, {'1','true','yes','on'}));
+    else
+        tf = false;
+    end
+end
+
 function n = local_count_files(cfg)
     n = 0;
     if ~exist(cfg.dataDir, 'dir')
@@ -1361,8 +1481,11 @@ function ok = srp_selftest()
     cfg = srp_config();
     [nPass, nFail] = local_check(strcmpi(cfg.healthProperty, 'sigma_max'), ...
         'default health property set', nPass, nFail);
-    [nPass, nFail] = local_check(isfield(cfg, 'targetServiceLife_years'), ...
-        'target service-life option available', nPass, nFail);
+    [nPass, nFail] = local_check(isfield(cfg, 'tuneFailureFraction'), ...
+        'failure-fraction tuning option available', nPass, nFail);
+    [nPass, nFail] = local_check(isfield(cfg, 'targetLifeRange_years') ...
+        && numel(cfg.targetLifeRange_years)==2, ...
+        'target life-range option available', nPass, nFail);
 
     fprintf('\n==== %d passed, %d failed ====\n', nPass, nFail);
     ok = (nFail == 0);
