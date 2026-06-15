@@ -1007,8 +1007,6 @@ function fit = local_global_fit(t, T, P, modelName, direction, R)
         span = max(abs(P), eps);
     end
     TrefK = median(TK);
-    EaSeeds = [40 60 80 100 120 150];
-
     switch lower(modelName)
         case 'firstorder'
             if sgn < 0
@@ -1018,25 +1016,17 @@ function fit = local_global_fit(t, T, P, modelName, direction, R)
                 P0_0 = min(P) - 0.05 * span;
                 Pinf_0 = max(P) + 0.15 * span;
             end
-            lnkref0 = local_init_lnkref(t, TK, P, P0_0, Pinf_0, TrefK);
-            modelFun = @(th, tt, TTk) local_fo_model_ref(th, tt, TTk, R, TrefK);
-            obj = @(th) sum((P - modelFun(th, t, TK)).^2) + local_ea_penalty(th(4), span);
-            best = [];
-            bestSSE = Inf;
-            for Ea0 = EaSeeds
-                th0 = [P0_0, Pinf_0, lnkref0, Ea0];
-                th = local_minimize(obj, th0);
-                sse = sum((P - modelFun(th, t, TK)).^2);
-                if isfinite(sse) && sse < bestSSE
-                    bestSSE = sse;
-                    best = th;
-                end
-            end
-            th = best;
-            P0 = th(1);
-            Pinf = th(2);
-            lnkref = th(3);
-            Ea_kJ = th(4);
+            [lnkref0, Ea0] = local_init_lnkref(t, TK, P, P0_0, Pinf_0, TrefK, R);
+            toPhysical = @(th) [th(1), th(2), th(3), exp(th(4))];
+            modelFun = @(th, tt, TTk) local_fo_model_ref(toPhysical(th), tt, TTk, R, TrefK);
+            obj = @(th) sum((P - modelFun(th, t, TK)).^2);
+            th0 = [P0_0, Pinf_0, lnkref0, log(max(Ea0, sqrt(eps)))];
+            th = local_minimize(obj, th0);
+            thPhys = toPhysical(th);
+            P0 = thPhys(1);
+            Pinf = thPhys(2);
+            lnkref = thPhys(3);
+            Ea_kJ = thPhys(4);
             kFun = @(Tc) exp(lnkref - (Ea_kJ * 1000 / R) .* (1 ./ (Tc + 273.15) - 1 / TrefK));
             Pfun = @(tt, Tc) Pinf + (P0 - Pinf) .* exp(-kFun(Tc) .* tt);
             tFail = @(Pf, Tc) local_fo_tfail(Pf, P0, Pinf, kFun(Tc));
@@ -1084,13 +1074,6 @@ function y = local_fo_model_ref(th, t, TK, R, TrefK)
     y = Pinf + (P0 - Pinf) .* exp(-k .* t);
 end
 
-function pen = local_ea_penalty(Ea_kJ, scale)
-    lo = 20;
-    hi = 250;
-    w = 1e3 * max(scale^2, eps);
-    pen = w * (max(0, lo - Ea_kJ)^2 + max(0, Ea_kJ - hi)^2);
-end
-
 function tf = local_fo_tfail(Pf, P0, Pinf, k)
     ratio = (Pf - Pinf) / (P0 - Pinf);
     if ratio <= 0 || ratio >= 1 || ~isfinite(ratio) || k <= 0
@@ -1100,7 +1083,7 @@ function tf = local_fo_tfail(Pf, P0, Pinf, k)
     end
 end
 
-function lnkref0 = local_init_lnkref(t, TK, P, P0_0, Pinf_0, TrefK)
+function [lnkref0, Ea0] = local_init_lnkref(t, TK, P, P0_0, Pinf_0, TrefK, R)
     temps = unique(TK);
     kT = nan(numel(temps), 1);
     for i = 1:numel(temps)
@@ -1120,11 +1103,27 @@ function lnkref0 = local_init_lnkref(t, TK, P, P0_0, Pinf_0, TrefK)
     if numel(x) >= 2
         pr = polyfit(x, yk, 1);
         lnkref0 = polyval(pr, 1 / TrefK);
+        Ea0 = max(-pr(1) * R / 1000, sqrt(eps));
     else
-        lnkref0 = yk(1);
+        kRef = median(kT(isfinite(kT)));
+        if isempty(kRef) || ~isfinite(kRef)
+            kRef = sqrt(eps);
+        end
+        lnkref0 = log(max(kRef, sqrt(eps)));
+        [~, Ea0] = local_init_rate(t, TK, P, R);
     end
     if ~isfinite(lnkref0)
-        lnkref0 = log(1e-2);
+        kRef = median(kT(isfinite(kT)));
+        if isempty(kRef) || ~isfinite(kRef)
+            kRef = sqrt(eps);
+        end
+        lnkref0 = log(max(kRef, sqrt(eps)));
+    end
+    if ~isfinite(Ea0) || Ea0 <= 0
+        [~, Ea0] = local_init_rate(t, TK, P, R);
+    end
+    if ~isfinite(Ea0) || Ea0 <= 0
+        Ea0 = sqrt(eps);
     end
 end
 
@@ -1136,14 +1135,27 @@ function [lnB0, Ea0] = local_init_rate(t, TK, P, R)
         pcoef = polyfit(t(m), P(m), 1);
         bT(i) = max(abs(pcoef(1)), 1e-10);
     end
-    pr = polyfit(1 ./ temps, log(bT), 1);
-    Ea0 = -pr(1) * R / 1000;
-    lnB0 = pr(2);
+    if numel(temps) >= 2
+        pr = polyfit(1 ./ temps, log(bT), 1);
+        Ea0 = -pr(1) * R / 1000;
+        lnB0 = pr(2);
+    else
+        rate0 = bT(find(isfinite(bT), 1, 'first'));
+        if isempty(rate0) || ~isfinite(rate0)
+            rate0 = sqrt(eps);
+        end
+        lnB0 = log(max(rate0, sqrt(eps)));
+        Ea0 = sqrt(eps);
+    end
     if ~isfinite(Ea0) || Ea0 <= 0
-        Ea0 = 80;
+        Ea0 = sqrt(eps);
     end
     if ~isfinite(lnB0)
-        lnB0 = 0;
+        rate0 = bT(find(isfinite(bT), 1, 'first'));
+        if isempty(rate0) || ~isfinite(rate0)
+            rate0 = sqrt(eps);
+        end
+        lnB0 = log(max(rate0, sqrt(eps)));
     end
 end
 
