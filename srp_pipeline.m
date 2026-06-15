@@ -23,7 +23,7 @@ function results = srp_pipeline(varargin)
 %     results = srp_pipeline();                        % uses cfg.dataDir
 %     results = srp_pipeline('DataDir','/path/data');  % point at your files
 %     results = srp_pipeline('ServiceTemp',27, 'HealthProperty','sigma_max');
-%     results = srp_pipeline('TargetLifeYears',17.5);  % calibrate spec to a target
+%     results = srp_pipeline('FailureFraction',1.5);   % end-of-life = +50% sigma_max
 %     srp_pipeline('test');                            % unit checks (no files)
 %     cfg     = srp_pipeline('config');                % get the default config
 %
@@ -33,28 +33,38 @@ function results = srp_pipeline(varargin)
 %     'HealthProperty' property whose change defines end-of-life
 %                      ('sigma_max' default; 'modulus_MPa','eps_at_max', ...)
 %     'KineticModel'   'auto' (default), 'firstorder','linear','loglinear'
-%     'TargetLifeYears' calibrate the failure threshold so the predicted
-%                      service life equals this target (e.g. 17.5). Set [] to
-%                      use cfg.failureFraction directly instead.
+%     'FailureFraction' end-of-life spec as a multiple of the pristine value
+%                      (e.g. 1.5 = end-of-life when sigma_max has risen 50%).
 %
 %   OUTPUT struct: .cfg .D (dataset) .A (aggregated) .model (ML) .res (service life)
 %
+%   HOW THE SERVICE LIFE IS PREDICTED (not hard-coded):
+%     The life is computed, never assumed. The pipeline (1) fits the measured
+%     property vs ageing-time/temperature data, (2) extracts an activation
+%     energy Ea from the temperature dependence, (3) extrapolates to the service
+%     temperature, and (4) reports the time at which the property crosses your
+%     end-of-life spec (cfg.failureFraction). Change the data or the spec and
+%     the predicted number changes accordingly.
+%
 %   WHAT CHANGED (better Arrhenius / Ea fit):
-%     1. KINETIC-MODEL AUTO-SELECTION. The pipeline now fits firstorder, linear
-%        and loglinear kinetics and keeps the one with the highest fit R^2
-%        (cfg.kineticModel = 'auto'). This alone usually lifts the reported R^2.
+%     1. KINETIC-MODEL AUTO-SELECTION BY Ea-FIT QUALITY. The pipeline fits
+%        firstorder, linear and loglinear kinetics and keeps the model whose
+%        Arrhenius (Ea) fit is best -- scored by a blend of the global kinetic
+%        R^2 and the two-stage Arrhenius R^2 (cfg.kineticModel = 'auto').
 %     2. MULTI-START GLOBAL FIT. The first-order Arrhenius fit is solved from
 %        many initial guesses (P0/Pinf/Ea grid) so the optimiser no longer gets
 %        stuck in poor local minima -> a tighter fit and higher R^2.
-%     3. TWO-STAGE ARRHENIUS DIAGNOSTIC. Besides the global fit, a classic
-%        per-temperature rate fit + ln(k) vs 1/T regression is reported
-%        (res.arrheniusR2_twostage, res.Ea_kJmol_twostage) so the Ea fit
-%        quality is measured honestly, not just assumed.
-%     4. TARGET-LIFE CALIBRATION. cfg.targetServiceLife_years lets you state the
-%        spec you actually want (e.g. 17.5 yr). The code back-solves the
-%        end-of-life property threshold that yields that life at the service
-%        temperature and reports the implied spec fraction. The Ea/Arrhenius
-%        fit is computed from the data and is independent of this calibration.
+%     3. TWO-STAGE ARRHENIUS, model-consistent. A per-temperature rate fit
+%        (consistent with the chosen kinetic model) + ln(k) vs 1/T regression
+%        gives an honest Ea and Arrhenius R^2 (res.arrheniusR2_twostage,
+%        res.Ea_kJmol_twostage).
+%     4. SPEC-SENSITIVITY TABLE. The report prints predicted life vs end-of-life
+%        spec so you can see the mapping and choose the spec that matches your
+%        real material criterion -- the predicted life itself is never forced.
+%
+%   NOTE: cfg.targetServiceLife_years is an OPTIONAL inverse-design ("what-if")
+%     switch, OFF by default. When set it back-solves the spec that WOULD give
+%     that life; it does not change the fitted Ea. Leave it [] to predict.
 %
 %   CHOICE OF HEALTH PROPERTY (important):
 %     End-of-life for a propellant is whichever mechanical property crosses a
@@ -90,6 +100,7 @@ function results = srp_pipeline(varargin)
     if isfield(p, 'DataDir');     cfg.dataDir       = p.DataDir;     end
     if isfield(p, 'ServiceTemp'); cfg.serviceTemp_C = p.ServiceTemp; end
     if isfield(p, 'KineticModel'); cfg.kineticModel = p.KineticModel; end
+    if isfield(p, 'FailureFraction'); cfg.failureFraction = p.FailureFraction; end
     if isfield(p, 'TargetLifeYears'); cfg.targetServiceLife_years = p.TargetLifeYears; end
     if isfield(p, 'HealthProperty')
         cfg.healthProperty = p.HealthProperty;
@@ -184,13 +195,14 @@ function cfg = srp_config()
     cfg.serviceTemp_C        = 27;
     cfg.referenceStrainRate  = 50;
 
-    % TARGET-LIFE CALIBRATION.
-    %   When set to a finite number the pipeline back-solves the end-of-life
-    %   property threshold that makes the predicted service life equal this many
-    %   years at cfg.serviceTemp_C, and reports the implied spec fraction. This
-    %   does NOT change the Ea / Arrhenius fit (those come purely from the data).
-    %   Set to [] to instead use cfg.failureFraction directly.
-    cfg.targetServiceLife_years = 17.5;    % user target ~17-18 yr
+    % INVERSE-DESIGN (WHAT-IF) ONLY -- OFF BY DEFAULT.
+    %   The pipeline PREDICTS the service life from the fitted kinetics and the
+    %   end-of-life spec (cfg.failureFraction). It does NOT target a number.
+    %   If you set this to a finite value the pipeline switches to inverse-design
+    %   mode and back-solves the spec threshold that WOULD give that life -- use
+    %   only to answer "what spec corresponds to N years?", never to report a
+    %   prediction. Leave [] for a genuine prediction.
+    cfg.targetServiceLife_years = [];      % [] = predict (do not hard-code)
 
     % ML options
     cfg.mlInputs = {'temp_C','days','strain_rate'};
@@ -661,14 +673,13 @@ function res = srp_service_life(A, cfg, model)
     res.property = prop; res.refStrainRate = refRate;
     res.temps_C = temps;
 
-    % ----- kinetic fit (auto-select best model when requested)
-    [fit, chosenModel] = local_select_fit(t, T, P, cfg, R);
+    % ----- kinetic fit (auto-select the model with the best Ea/Arrhenius fit)
+    [fit, ts, chosenModel] = local_select_fit(t, T, P, cfg, R);
     res.kineticModel = chosenModel;
     res.P0 = fit.P0; res.Pinf = fit.Pinf;
     res.Ea_kJmol = fit.Ea_kJmol; res.kineticFitR2 = fit.R2; res.Pfun = fit.Pfun;
 
     % ----- two-stage Arrhenius diagnostic (classic ln(k) vs 1/T regression)
-    ts = local_two_stage_arrhenius(t, T, P, fit, cfg.healthDirection, R);
     res.Ea_kJmol_twostage  = ts.Ea_kJmol;
     res.arrheniusR2_twostage = ts.R2;
     res.twostage = ts;
@@ -713,6 +724,10 @@ function res = srp_service_life(A, cfg, model)
     res.serviceTemp_C     = cfg.serviceTemp_C;
     res.serviceLife_days  = fit.tFail(P_fail, cfg.serviceTemp_C);
     res.serviceLife_years = res.serviceLife_days / 365.25;
+    % informational mapping: predicted life (years) as a function of the
+    % relative end-of-life spec fraction (P_fail = frac * P0) at service temp
+    svcT = cfg.serviceTemp_C; P0loc = fit.P0;
+    res.Pfun_life = @(frac) fit.tFail(frac .* P0loc, svcT) / 365.25;
     res.arrheniusSlope     = fit.Ea_kJmol * 1000 / R;
     res.arrheniusIntercept = log(res.serviceLife_days) - res.arrheniusSlope / Ts_K;
     res.tfail_used = exp(res.arrheniusIntercept + res.arrheniusSlope ./ (temps + 273.15));
@@ -731,15 +746,21 @@ function res = srp_service_life(A, cfg, model)
     res.accelFactor = res.serviceLife_days ./ tfail_k(:);
 end
 
-% Try the requested kinetic model, or (for 'auto') fit all and keep best R^2.
-function [fit, chosenModel] = local_select_fit(t, T, P, cfg, R)
+% Try the requested kinetic model, or (for 'auto') fit every candidate and
+% keep the one whose Ea/Arrhenius fit is best. The score blends the global
+% kinetic R^2 with the two-stage Arrhenius R^2, weighted toward the Arrhenius
+% (Ea) fit since that drives the service-life extrapolation.
+function [fit, ts, chosenModel] = local_select_fit(t, T, P, cfg, R)
     name = lower(char(cfg.kineticModel));
     if strcmp(name, 'auto')
         cands = {'firstorder','linear','loglinear'};
     else
         cands = {name};
     end
-    bestR2 = -Inf; fit = []; chosenModel = cands{1};
+    bestScore = -Inf; fit = []; ts = []; chosenModel = cands{1};
+    if numel(cands) > 1
+        fprintf('  model selection (higher Arrhenius R^2 is better):\n');
+    end
     for i = 1:numel(cands)
         try
             f = local_global_fit(t, T, P, cands{i}, cfg.healthDirection, R, cfg.fitMultiStart);
@@ -747,39 +768,41 @@ function [fit, chosenModel] = local_select_fit(t, T, P, cfg, R)
             warning('srp_service_life:fit', 'model "%s" failed: %s', cands{i}, err.message);
             continue;
         end
-        if isfield(f,'R2') && isfinite(f.R2) && f.R2 > bestR2
-            bestR2 = f.R2; fit = f; chosenModel = cands{i};
+        s = local_two_stage_arrhenius(t, T, P, f, cands{i}, cfg.healthDirection, R);
+        kinR2 = f.R2; if ~isfinite(kinR2); kinR2 = -Inf; end
+        arrR2 = s.R2; if ~isfinite(arrR2); arrR2 = -Inf; end
+        score = 0.4*kinR2 + 0.6*arrR2;   % prioritise the Ea (Arrhenius) fit
+        if numel(cands) > 1
+            fprintf('    %-11s kinetic R^2=%6.3f  Arrhenius R^2=%6.3f  -> score=%6.3f\n', ...
+                cands{i}, kinR2, arrR2, score);
+        end
+        if score > bestScore
+            bestScore = score; fit = f; ts = s; chosenModel = cands{i};
         end
     end
     if isempty(fit)   % last-ditch: force the first candidate
         fit = local_global_fit(t, T, P, cands{1}, cfg.healthDirection, R, false);
+        ts  = local_two_stage_arrhenius(t, T, P, fit, cands{1}, cfg.healthDirection, R);
         chosenModel = cands{1};
     end
     if numel(cands) > 1
-        fprintf('  kinetic-model auto-select -> %s (fit R^2 = %.4f)\n', chosenModel, bestR2);
+        fprintf('  -> selected kinetic model: %s\n', chosenModel);
     end
 end
 
 % Classic per-temperature rate fit followed by an Arrhenius regression of
-% ln(k) vs 1/T. Gives an honest Ea and Arrhenius R^2 independent of the
-% global fit (used only for diagnostics/reporting).
-function ts = local_two_stage_arrhenius(t, T, P, fit, direction, R)
+% ln(k) vs 1/T. The per-temperature rate is computed in a way consistent with
+% the chosen kinetic model, giving an honest Ea and Arrhenius R^2.
+function ts = local_two_stage_arrhenius(t, T, P, fit, modelName, direction, R)
     ts = struct('Ea_kJmol',NaN,'R2',NaN,'lnk',[],'invT',[],'temps_C',[]);
     temps = unique(T);
-    sgn = 1; if strcmpi(direction,'decrease'); sgn = -1; end
     lnk = nan(numel(temps),1);
     for i = 1:numel(temps)
         m  = (T == temps(i));
         tt = t(m); pp = P(m);
         if numel(tt) < 2; continue; end
-        % first-order rate toward the global asymptote Pinf
-        ratio = (pp - fit.Pinf) ./ (fit.P0 - fit.Pinf);
-        ratio = min(max(ratio, 1e-6), 1 - 1e-9);
-        yv = log(ratio);                 % = -k*t  (ideally linear through 0)
-        c  = polyfit(tt, yv, 1);
-        ki = max(-c(1), 1e-12);
-        if ~isfinite(ki); continue; end
-        lnk(i) = log(ki);
+        ki = local_temp_rate(tt, pp, fit, modelName);
+        if isfinite(ki) && ki > 0; lnk(i) = log(ki); end
     end
     invT = 1 ./ (temps + 273.15);
     okk  = isfinite(lnk);
@@ -791,6 +814,25 @@ function ts = local_two_stage_arrhenius(t, T, P, fit, direction, R)
         ss_res = sum((lnk(okk) - yhat).^2);
         ss_tot = sum((lnk(okk) - mean(lnk(okk))).^2);
         ts.R2 = 1 - ss_res / max(ss_tot, eps);
+    end
+end
+
+% Per-temperature rate constant, computed consistently with the kinetic model.
+function k = local_temp_rate(tt, pp, fit, modelName)
+    switch lower(modelName)
+        case 'firstorder'
+            ratio = (pp - fit.Pinf) ./ (fit.P0 - fit.Pinf);
+            ratio = min(max(ratio, 1e-6), 1 - 1e-9);
+            c = polyfit(tt, log(ratio), 1);     % log(ratio) = -k*t
+            k = max(-c(1), 1e-12);
+        case 'linear'
+            c = polyfit(tt, pp, 1);             % rate = |dP/dt|
+            k = max(abs(c(1)), 1e-12);
+        case 'loglinear'
+            c = polyfit(tt, log(max(pp, eps)), 1);
+            k = max(abs(c(1)), 1e-12);
+        otherwise
+            k = NaN;
     end
 end
 
@@ -1045,13 +1087,15 @@ function local_report(res, cfg)
     fprintf('--------------------------------------------------------\n');
     fprintf(' Health property        : %s (%s)\n', res.property, cfg.healthDirection);
     fprintf(' Pristine value  P0     : %.4g\n', res.P0);
-    fprintf(' Failure threshold Pfail: %.4g  (%s)\n', res.P_fail, res.failureMode);
-    if isfield(res,'failureFraction')
-        fprintf(' Implied spec fraction  : %.3f  (%.1f%% change vs pristine)\n', ...
-            res.failureFraction, 100*(res.failureFraction-1));
-    end
     if isfield(res,'calibrated') && res.calibrated
-        fprintf(' (threshold calibrated to target life %.1f yr)\n', res.targetLife_years);
+        fprintf(' MODE                   : INVERSE-DESIGN (what-if for %.1f yr)\n', res.targetLife_years);
+    else
+        fprintf(' MODE                   : PREDICTION (from spec + fitted kinetics)\n');
+    end
+    fprintf(' End-of-life spec Pfail : %.4g  (%s)\n', res.P_fail, res.failureMode);
+    if isfield(res,'failureFraction')
+        fprintf(' Spec fraction          : %.3f  (%.1f%% change vs pristine)\n', ...
+            res.failureFraction, 100*(res.failureFraction-1));
     end
     fprintf(' Kinetic model          : %s\n', res.kineticModel);
     fprintf(' t_fail source          : %s\n', res.source);
@@ -1070,7 +1114,22 @@ function local_report(res, cfg)
     fprintf(' Service temperature    : %g C\n', res.serviceTemp_C);
     fprintf(' PREDICTED SERVICE LIFE : %.0f days  =  %.2f years\n', ...
         res.serviceLife_days, res.serviceLife_years);
+    % Informational only: how the predicted life moves with the chosen spec.
+    % This does NOT change the prediction above; it just shows the mapping so
+    % you can pick the end-of-life criterion that matches your real spec.
+    if isfield(res,'Pfun') && isfinite(res.P0)
+        fprintf(' --- spec sensitivity (informational, life = f(spec)) ---\n');
+        for frac = [1.10 1.25 1.50 1.75 2.00]
+            if strcmpi(cfg.healthDirection,'decrease'); frac = 2 - frac; end %#ok<FXSET>
+            yrs = res.Pfun_life(frac);
+            fprintf('   spec %+5.0f%%  ->  %s\n', 100*(frac-1), local_fmt_years(yrs));
+        end
+    end
     fprintf('--------------------------------------------------------\n');
+end
+function s = local_fmt_years(yrs)
+    if ~isfinite(yrs) || yrs <= 0; s = 'n/a (never reaches spec)';
+    else; s = sprintf('%6.1f years (%.0f days)', yrs, yrs*365.25); end
 end
 function local_save_summary(D, A, model, res, cfg)
     fpath = fullfile(cfg.resultsDir, 'service_life_summary.txt');
