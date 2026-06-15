@@ -189,7 +189,7 @@ function cfg = srp_config()
     cfg.healthProperty   = 'sigma_max';
     cfg.healthDirection  = 'increase';     % 'decrease' or 'increase'
     cfg.failureMode      = 'relative';     % 'relative' or 'absolute'
-    cfg.failureFraction  = 1.50;           % fallback spec when no target life set
+    cfg.failureFraction  = 1.50;           % end-of-life = +50% sigma_max (edit to your spec)
     cfg.failureAbsolute  = NaN;
 
     % kinetic model: 'auto' tries firstorder/linear/loglinear and keeps the best
@@ -472,7 +472,7 @@ function D = srp_build_dataset(cfg, dataDir)
     files = local_list_data_files(dataDir, cfg.fileExtensions);
     if isempty(files)
         error('srp_build_dataset:noFiles', ...
-            'No data files found in "%s". Generate demo data or set cfg.dataDir.', dataDir);
+            'No data files found in "%s". Set cfg.dataDir to your measured files.', dataDir);
     end
     rows = struct([]); n = 0;
     for i = 1:numel(files)
