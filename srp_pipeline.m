@@ -136,6 +136,7 @@ function results = srp_pipeline(varargin)
     % ----- 6-7. kinetics + service life
     fprintf('\n== Accelerated-ageing kinetics & service life ==\n');
     res = srp_service_life(A, cfg, model);
+    local_report_ea_derivation(res, cfg);
     local_report(res, cfg);
 
     % ----- 8. plots + summary file
@@ -822,16 +823,22 @@ end
 % the chosen kinetic model, giving an honest Ea and Arrhenius R^2.
 function ts = local_two_stage_arrhenius(t, T, P, fit, modelName, direction, R)
     ts = struct('Ea_kJmol',NaN,'R2',NaN,'lnk',[],'invT',[],'temps_C',[], ...
-                'slope',NaN,'intercept',NaN,'kFun',[],'tFail',[],'valid',false);
+                'slope',NaN,'intercept',NaN,'kFun',[],'tFail',[],'valid',false, ...
+                'allTemps_C',[],'kPerTemp',[],'nPerTemp',[]);
     temps = unique(T);
     lnk = nan(numel(temps),1);
+    kPerTemp = nan(numel(temps),1);
+    nPerTemp = zeros(numel(temps),1);
     for i = 1:numel(temps)
         m  = (T == temps(i));
         tt = t(m); pp = P(m);
+        nPerTemp(i) = numel(tt);
         if numel(tt) < 2; continue; end
         ki = local_temp_rate(tt, pp, fit, modelName);
+        kPerTemp(i) = ki;
         if isfinite(ki) && ki > 0; lnk(i) = log(ki); end
     end
+    ts.allTemps_C = temps; ts.kPerTemp = kPerTemp; ts.nPerTemp = nPerTemp;
     invT = 1 ./ (temps + 273.15);
     okk  = isfinite(lnk);
     ts.temps_C = temps(okk); ts.invT = invT(okk); ts.lnk = lnk(okk);
@@ -1125,6 +1132,35 @@ end
 %% ======================================================================
 %% CONSOLE REPORT + SUMMARY FILE
 %% ======================================================================
+% Print, step by step, how E_a is computed FROM THE DATA (nothing hardcoded).
+function local_report_ea_derivation(res, cfg)
+    ts = []; if isfield(res,'twostage'); ts = res.twostage; end
+    fprintf('\n----- E_a DERIVED FROM YOUR DATA (two-stage Arrhenius) -----\n');
+    fprintf(' health property = %s,  kinetic model = %s\n', res.property, res.kineticModel);
+    if isempty(ts) || ~isfield(ts,'allTemps_C') || isempty(ts.allTemps_C)
+        fprintf(' (not enough data to form an Arrhenius line)\n'); return;
+    end
+    fprintf(' Step 1 - fit a rate constant k(T) from the measured points at each T:\n');
+    for i = 1:numel(ts.allTemps_C)
+        Tc = ts.allTemps_C(i); n = ts.nPerTemp(i); k = ts.kPerTemp(i);
+        if isfinite(k)
+            fprintf('    %4g C : %2d points  ->  k = %.4g  (1/T = %.6f /K, ln k = %+.4f)\n', ...
+                Tc, n, k, 1/(Tc+273.15), log(k));
+        else
+            fprintf('    %4g C : %2d points  ->  k unusable (skipped)\n', Tc, n);
+        end
+    end
+    fprintf(' Step 2 - linear regression  ln(k) = a + b*(1/T)  over the points above:\n');
+    fprintf('    slope b   = %.1f K     (b = -E_a/R)\n', ts.slope);
+    fprintf('    intercept = %.4f\n', ts.intercept);
+    fprintf('    fit R^2   = %.4f\n', ts.R2);
+    fprintf(' Step 3 - E_a = -b * R = %.2f kJ/mol   <-- computed, not assumed\n', ts.Ea_kJmol);
+    if numel(ts.lnk) < 3
+        fprintf(' NOTE: only %d usable temperatures -> Arrhenius R^2 is fragile.\n', numel(ts.lnk));
+    end
+    fprintf('-----------------------------------------------------------\n');
+end
+
 function local_report(res, cfg)
     fprintf('\n--------------------------------------------------------\n');
     fprintf(' Service-life prediction\n');
