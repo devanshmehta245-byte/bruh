@@ -79,6 +79,29 @@ fig2 = os.path.join(FIG_DIR, "acceleration_factor_vs_temperature.png")
 plt.savefig(fig2, dpi=160)
 plt.close()
 
+# --- Figure 3: Sensitivity of service life to activation energy --------------
+plt.figure(figsize=(7, 4.5))
+for Ea_s, colour in zip((60000.0, 80000.0, 100000.0),
+                        ("#2da44e", "#1f6feb", "#cf222e")):
+    life = np.zeros_like(T_test)
+    for i in range(len(T_test)):
+        A = E_test / (t_test ** n)
+        X = (Ea_s / R) * (1.0 / T_test[i] - 1.0 / T_service)
+        AF = A * np.exp(X)
+        tf = (E_crit / A) ** (1.0 / n)
+        life[i] = (tf * AF) / 365.25
+    plt.plot(temperatures_C, life, "-o", color=colour, linewidth=2,
+             markersize=5, label=f"Ea = {Ea_s/1000:.0f} kJ/mol")
+plt.xlabel("Temperature (\u00b0C)")
+plt.ylabel("Service Life (years)")
+plt.title("Sensitivity of Predicted Service Life to Activation Energy")
+plt.grid(True, linestyle="--", alpha=0.5)
+plt.legend()
+plt.tight_layout()
+fig3 = os.path.join(FIG_DIR, "sensitivity_activation_energy.png")
+plt.savefig(fig3, dpi=160)
+plt.close()
+
 # --- Dump results table for the report ---------------------------------------
 rows = []
 print(f"{'Temp (C)':>10} {'AF':>12} {'t_f (days)':>14} {'Service life (yr)':>20}")
