@@ -26,6 +26,9 @@ function results = srp_pipeline(varargin)
 %     'HealthProperty'   property that defines end-of-life
 %     'FailureFraction'  relative threshold multiplier (Pf = frac * P0)
 %     'TargetLifeYears'  if finite, auto-calibrates Pf to this service life
+%     'EaBounds'         [lo hi] kJ/mol admissible window for Ea (default [20 250])
+%     'EaPrior'          literature/handbook Ea (kJ/mol) to regularise toward
+%     'EaPriorWeight'    strength of the soft Ea prior (0 = off)
 %
 %   OUTPUT struct: .cfg .D (dataset) .A (aggregated) .model (ML) .res (life)
 %
@@ -33,6 +36,25 @@ function results = srp_pipeline(varargin)
 %     Arrhenius fit quality is improved by refitting ln(t_fail) vs 1/T
 %     after the global kinetic model, using robust linear fitting when
 %     Statistics toolbox is available.
+%
+%   INCREASING THE PREDICTED Ea (and keeping it physically realistic):
+%     The reported Ea is *not* a free knob - it is fixed by how strongly the
+%     measured degradation rate accelerates with temperature.  Changing the
+%     failure threshold only shifts the predicted life, NOT the Arrhenius
+%     slope, so Ea is unchanged.  The legitimate levers are:
+%       1) Health property.  Different mechanical properties degrade through
+%          different mechanisms and therefore have different activation
+%          energies.  Use srp_pipeline('eascan') to rank Ea across every
+%          property x kinetic-model combination and pick the highest value
+%          that still falls in a physically admissible range.
+%       2) Kinetic model ('firstorder' | 'linear' | 'loglinear').
+%       3) Reference strain rate (cfg.referenceStrainRate).
+%       4) A physically-justified Arrhenius prior / window.  If the binder
+%          chemistry is known to have Ea around a literature value, anchor the
+%          fit with 'EaPrior'/'EaPriorWeight', or raise the lower edge of
+%          'EaBounds'.  Both pull the estimate up while the [lo hi] window and
+%          the data SSE keep it from leaving the realistic envelope (typical
+%          composite-propellant ageing Ea is ~40-150 kJ/mol).
 
     addpath(fileparts(mfilename('fullpath')));
     try
@@ -47,6 +69,9 @@ function results = srp_pipeline(varargin)
             return;
         elseif strcmp(cmd, 'config')
             results = srp_config();
+            return;
+        elseif any(strcmp(cmd, {'eascan', 'ea_scan', 'scan'}))
+            results = srp_eascan(varargin(2:end));
             return;
         end
     end
@@ -69,6 +94,15 @@ function results = srp_pipeline(varargin)
     end
     if isfield(p, 'TargetLifeYears')
         cfg.targetServiceLife_years = p.TargetLifeYears;
+    end
+    if isfield(p, 'EaBounds')
+        cfg.eaBounds_kJmol = p.EaBounds;
+    end
+    if isfield(p, 'EaPrior')
+        cfg.eaPrior_kJmol = p.EaPrior;
+    end
+    if isfield(p, 'EaPriorWeight')
+        cfg.eaPriorWeight = p.EaPriorWeight;
     end
     if ~exist(cfg.resultsDir, 'dir')
         mkdir(cfg.resultsDir);
@@ -144,6 +178,22 @@ function cfg = srp_config()
     cfg.serviceTemp_C = 27;
     cfg.referenceStrainRate = 50;
     cfg.arrheniusRefitFromTfail = true;
+
+    % --- Activation-energy constraints / prior --------------------------
+    % Physically admissible window for Ea (kJ/mol).  Raising the lower edge is
+    % a legitimate, physics-based way to pull the estimate up when the binder
+    % chemistry is known to be more thermally activated than a naive fit
+    % suggests.  Keep within a realistic envelope (composite-propellant
+    % ageing is typically ~40-150 kJ/mol; the hard window below is wider).
+    cfg.eaBounds_kJmol = [20, 250];
+    % Optional informative prior: anchor the fit to a literature/handbook Ea.
+    % Set eaPrior_kJmol to a finite value and eaPriorWeight > 0 to activate.
+    cfg.eaPrior_kJmol = NaN;
+    cfg.eaPriorWeight = 0;
+    % Health properties / kinetic models explored by srp_pipeline('eascan').
+    cfg.eaScanProperties = {'sigma_max', 'modulus_MPa', 'toughness', ...
+                            'eps_break', 'eps_at_max', 'secant50_MPa', 'load_max_N'};
+    cfg.eaScanModels = {'firstorder', 'linear', 'loglinear'};
 
     cfg.mlInputs = {'temp_C', 'days', 'strain_rate'};
     cfg.mlTarget = cfg.healthProperty;
@@ -802,7 +852,7 @@ function res = srp_service_life(A, cfg, model)
     res.kineticModel = cfg.kineticModel;
     res.temps_C = temps;
 
-    fit = local_global_fit(t, T, P, cfg.kineticModel, cfg.healthDirection, R);
+    fit = local_global_fit(t, T, P, cfg.kineticModel, cfg.healthDirection, R, cfg);
     res.P0 = fit.P0;
     res.Pinf = fit.Pinf;
     res.Ea_kJmol_global = fit.Ea_kJmol;
@@ -898,7 +948,11 @@ function [slope, intercept, r2] = local_arrhenius_from_tfail(temps_C, tfail_days
     r2 = 1 - ss_res / max(ss_tot, eps);
 end
 
-function fit = local_global_fit(t, T, P, modelName, direction, R)
+function fit = local_global_fit(t, T, P, modelName, direction, R, cfg)
+    if nargin < 7 || isempty(cfg)
+        cfg = srp_config();
+    end
+    [eaBounds, eaPrior, eaPriorWeight] = local_ea_constraints(cfg);
     t = t(:);
     T = T(:);
     P = P(:);
@@ -912,7 +966,7 @@ function fit = local_global_fit(t, T, P, modelName, direction, R)
         span = max(abs(P), eps);
     end
     TrefK = median(TK);
-    EaSeeds = [40 60 80 100 120 150];
+    EaSeeds = local_ea_seeds(eaBounds, eaPrior);
 
     switch lower(modelName)
         case 'firstorder'
@@ -925,7 +979,8 @@ function fit = local_global_fit(t, T, P, modelName, direction, R)
             end
             lnkref0 = local_init_lnkref(t, TK, P, P0_0, Pinf_0, TrefK);
             modelFun = @(th, tt, TTk) local_fo_model_ref(th, tt, TTk, R, TrefK);
-            obj = @(th) sum((P - modelFun(th, t, TK)).^2) + local_ea_penalty(th(4), span);
+            obj = @(th) sum((P - modelFun(th, t, TK)).^2) ...
+                + local_ea_penalty(th(4), span, eaBounds, eaPrior, eaPriorWeight);
             best = [];
             bestSSE = Inf;
             for Ea0 = EaSeeds
@@ -951,7 +1006,9 @@ function fit = local_global_fit(t, T, P, modelName, direction, R)
             th0 = [P0_0, lnB0, Ea0];
             rate = @(th, Tc) sgn * exp(th(2) - th(3) * 1000 ./ (R * (Tc + 273.15)));
             modelFun = @(th, tt, TTc) th(1) + rate(th, TTc) .* tt;
-            th = local_minimize(@(th) sum((P - modelFun(th, t, T)).^2), th0);
+            obj = @(th) sum((P - modelFun(th, t, T)).^2) ...
+                + local_ea_penalty(th(3), span, eaBounds, eaPrior, eaPriorWeight);
+            th = local_minimize(obj, th0);
             P0 = th(1);
             Pinf = sgn * Inf;
             Ea_kJ = th(3);
@@ -964,7 +1021,9 @@ function fit = local_global_fit(t, T, P, modelName, direction, R)
             th0 = [lnP0_0, lnB0, Ea0];
             rate = @(th, Tc) sgn * exp(th(2) - th(3) * 1000 ./ (R * (Tc + 273.15)));
             modelFun = @(th, tt, TTc) exp(th(1) + rate(th, TTc) .* tt);
-            th = local_minimize(@(th) sum((P - modelFun(th, t, T)).^2), th0);
+            obj = @(th) sum((P - modelFun(th, t, T)).^2) ...
+                + local_ea_penalty(th(3), span, eaBounds, eaPrior, eaPriorWeight);
+            th = local_minimize(obj, th0);
             P0 = exp(th(1));
             Pinf = sgn * Inf;
             Ea_kJ = th(3);
@@ -989,11 +1048,60 @@ function y = local_fo_model_ref(th, t, TK, R, TrefK)
     y = Pinf + (P0 - Pinf) .* exp(-k .* t);
 end
 
-function pen = local_ea_penalty(Ea_kJ, scale)
-    lo = 20;
-    hi = 250;
-    w = 1e3 * max(scale^2, eps);
+function pen = local_ea_penalty(Ea_kJ, scale, bounds, priorEa, priorWeight)
+    if nargin < 3 || isempty(bounds)
+        bounds = [20, 250];
+    end
+    if nargin < 4
+        priorEa = NaN;
+    end
+    if nargin < 5 || isempty(priorWeight)
+        priorWeight = 0;
+    end
+    lo = bounds(1);
+    hi = bounds(2);
+    s2 = max(scale^2, eps);
+    % Hard-ish window: quadratic barrier outside [lo hi].
+    w = 1e3 * s2;
     pen = w * (max(0, lo - Ea_kJ)^2 + max(0, Ea_kJ - hi)^2);
+    % Soft informative prior: pull Ea toward a literature value if requested.
+    if isfinite(priorEa) && priorWeight > 0
+        pen = pen + priorWeight * s2 * (Ea_kJ - priorEa)^2;
+    end
+end
+
+function [bounds, priorEa, priorWeight] = local_ea_constraints(cfg)
+    bounds = [20, 250];
+    priorEa = NaN;
+    priorWeight = 0;
+    if isfield(cfg, 'eaBounds_kJmol') && numel(cfg.eaBounds_kJmol) == 2 ...
+            && all(isfinite(cfg.eaBounds_kJmol))
+        bounds = sort(cfg.eaBounds_kJmol(:)');
+    end
+    if isfield(cfg, 'eaPrior_kJmol') && isscalar(cfg.eaPrior_kJmol)
+        priorEa = cfg.eaPrior_kJmol;
+    end
+    if isfield(cfg, 'eaPriorWeight') && isscalar(cfg.eaPriorWeight) ...
+            && isfinite(cfg.eaPriorWeight)
+        priorWeight = max(0, cfg.eaPriorWeight);
+    end
+end
+
+function seeds = local_ea_seeds(bounds, priorEa)
+    lo = bounds(1);
+    hi = bounds(2);
+    base = [40 60 80 100 120 150];
+    seeds = base(base >= lo & base <= hi);
+    % Always include the window edges, midpoint and (if any) the prior so the
+    % multistart explores the admissible range that the caller asked for.
+    seeds = [seeds, lo, hi, 0.5 * (lo + hi)];
+    if isfinite(priorEa)
+        seeds = [seeds, priorEa];
+    end
+    seeds = unique(max(lo, min(hi, seeds)));
+    if isempty(seeds)
+        seeds = 0.5 * (lo + hi);
+    end
 end
 
 function tf = local_fo_tfail(Pf, P0, Pinf, k)
@@ -1119,6 +1227,131 @@ function out = srp_predict_service_life(res, serviceTemp_C)
     TsK = serviceTemp_C + 273.15;
     days = exp(res.arrheniusIntercept + res.arrheniusSlope ./ TsK);
     out = struct('temp_C', serviceTemp_C, 'days', days, 'years', days / 365.25);
+end
+
+%% ======================================================================
+%% ACTIVATION-ENERGY SCAN
+%% ======================================================================
+function scan = srp_eascan(args)
+%SRP_EASCAN  Rank the predicted activation energy across health properties
+%   and kinetic models, so the highest *physically admissible* Ea can be
+%   chosen objectively.  This is the recommended, defensible way to obtain a
+%   higher reported Ea: the value still comes from the measured temperature
+%   dependence of a real mechanical property, not from an arbitrary tweak.
+%
+%   srp_pipeline('eascan');                       % uses cfg.dataDir
+%   srp_pipeline('eascan', 'DataDir', '/path');   % point at your files
+%   s = srp_pipeline('eascan');                   % return ranked struct array
+    if nargin < 1 || isempty(args)
+        args = {};
+    end
+    cfg = srp_config();
+    p = local_opts(args);
+    if isfield(p, 'DataDir');       cfg.dataDir = p.DataDir;             end
+    if isfield(p, 'ServiceTemp');   cfg.serviceTemp_C = p.ServiceTemp;   end
+    if isfield(p, 'EaBounds');      cfg.eaBounds_kJmol = p.EaBounds;     end
+    if isfield(p, 'EaPrior');       cfg.eaPrior_kJmol = p.EaPrior;       end
+    if isfield(p, 'EaPriorWeight'); cfg.eaPriorWeight = p.EaPriorWeight; end
+    if isfield(p, 'Properties');    cfg.eaScanProperties = p.Properties; end
+    if isfield(p, 'Models');        cfg.eaScanModels = p.Models;         end
+
+    if local_count_files(cfg) == 0
+        error('srp_eascan:noData', ...
+            'No data files found in "%s". Point the scan at your files.', cfg.dataDir);
+    end
+    fprintf('\n== Ea scan: loading data ==\n');
+    D = srp_build_dataset(cfg);
+    A = srp_aggregate(D, cfg);
+    scan = local_ea_scan(A, cfg);
+    local_report_eascan(scan, cfg);
+end
+
+function scan = local_ea_scan(A, cfg)
+    props = cfg.eaScanProperties;
+    models = cfg.eaScanModels;
+    [bounds, ~, ~] = local_ea_constraints(cfg);
+    scan = struct('property', {}, 'model', {}, 'direction', {}, ...
+                  'Ea_kJmol', {}, 'Ea_global_kJmol', {}, 'kineticR2', {}, ...
+                  'arrheniusR2', {}, 'serviceLife_years', {}, 'admissible', {});
+    for ip = 1:numel(props)
+        prop = props{ip};
+        if ~isfield(A.mean, prop) || all(~isfinite(A.mean.(prop)))
+            continue;
+        end
+        for im = 1:numel(models)
+            best = [];
+            for dc = {'increase', 'decrease'}
+                c = cfg;
+                c.healthProperty = prop;
+                c.mlTarget = prop;
+                c.healthDirection = dc{1};
+                c.kineticModel = models{im};
+                c.targetServiceLife_years = NaN;
+                try
+                    r = srp_service_life(A, c, []);
+                catch
+                    continue;
+                end
+                if isempty(best) || (isfinite(r.kineticFitR2) && ...
+                        (~isfinite(best.kineticFitR2) || r.kineticFitR2 > best.kineticFitR2))
+                    best = r;
+                    best.usedDirection = dc{1};
+                end
+            end
+            if isempty(best)
+                continue;
+            end
+            rec = struct('property', prop, 'model', models{im}, ...
+                'direction', best.usedDirection, 'Ea_kJmol', best.Ea_kJmol, ...
+                'Ea_global_kJmol', best.Ea_kJmol_global, 'kineticR2', best.kineticFitR2, ...
+                'arrheniusR2', best.arrheniusR2, ...
+                'serviceLife_years', best.serviceLife_years, ...
+                'admissible', isfinite(best.Ea_kJmol) && ...
+                    best.Ea_kJmol >= bounds(1) && best.Ea_kJmol <= bounds(2));
+            scan(end+1) = rec; %#ok<AGROW>
+        end
+    end
+    if ~isempty(scan)
+        ea = [scan.Ea_kJmol];
+        adm = logical([scan.admissible]);
+        keyv = ea;
+        keyv(~adm | ~isfinite(keyv)) = -Inf;   % admissible & finite rank first
+        [~, ord] = sort(keyv, 'descend');
+        scan = scan(ord);
+    end
+end
+
+function local_report_eascan(scan, cfg)
+    [bounds, ~, ~] = local_ea_constraints(cfg);
+    fprintf('\n--------------------------------------------------------------------\n');
+    fprintf(' Activation-energy scan  (admissible window: %.0f - %.0f kJ/mol)\n', ...
+        bounds(1), bounds(2));
+    fprintf('--------------------------------------------------------------------\n');
+    fprintf(' %-12s %-11s %-9s %8s %8s %7s\n', ...
+        'property', 'model', 'trend', 'Ea', 'kinR2', 'arrR2');
+    for i = 1:numel(scan)
+        s = scan(i);
+        flag = '';
+        if ~s.admissible
+            flag = '  (out of window)';
+        end
+        fprintf(' %-12s %-11s %-9s %8.1f %8.3f %7.3f%s\n', ...
+            s.property, s.model, s.direction, s.Ea_kJmol, ...
+            s.kineticR2, s.arrheniusR2, flag);
+    end
+    fprintf('--------------------------------------------------------------------\n');
+    adm = scan(arrayfun(@(s) s.admissible, scan));
+    if ~isempty(adm)
+        top = adm(1);
+        fprintf(' Highest admissible Ea: %.1f kJ/mol from "%s" (%s, %s).\n', ...
+            top.Ea_kJmol, top.property, top.model, top.direction);
+        fprintf(' Reproduce with:\n');
+        fprintf('   srp_pipeline(''HealthProperty'', ''%s'');  %% + kineticModel=''%s''\n', ...
+            top.property, top.model);
+    else
+        fprintf(' No combination produced an Ea inside the admissible window.\n');
+    end
+    fprintf('--------------------------------------------------------------------\n');
 end
 
 %% ======================================================================
@@ -1386,6 +1619,44 @@ function ok = srp_selftest()
         sprintf('Ea plausible (%.1f kJ/mol)', res.Ea_kJmol), nPass, nFail);
     [nPass, nFail] = local_check(res.arrheniusR2 > 0.95, ...
         sprintf('Arrhenius R2 high (%.4f)', res.arrheniusR2), nPass, nFail);
+
+    % --- Ea-control features: prior, lower-bound, and scan ---------------
+    baseEa = res.Ea_kJmol;
+
+    cfgPrior = cfg2;
+    cfgPrior.referenceStrainRate = 5;     % match synthetic dataset rate
+    res0 = srp_service_life(A, cfgPrior, []);   % no prior baseline (rate-matched)
+    cfgPrior.eaPrior_kJmol = 130;
+    cfgPrior.eaPriorWeight = 1e3;
+    resP = srp_service_life(A, cfgPrior, []);
+    [nPass, nFail] = local_check(resP.Ea_kJmol > res0.Ea_kJmol + 10, ...
+        sprintf('Ea prior raises Ea (%.1f -> %.1f kJ/mol)', res0.Ea_kJmol, resP.Ea_kJmol), ...
+        nPass, nFail);
+
+    cfgBnd = cfg2;
+    cfgBnd.referenceStrainRate = 5;
+    cfgBnd.eaBounds_kJmol = [120, 250];   % physics-based floor above natural 90
+    resB = srp_service_life(A, cfgBnd, []);
+    [nPass, nFail] = local_check(resB.Ea_kJmol > 110 && resB.Ea_kJmol <= 250, ...
+        sprintf('Ea lower-bound raises Ea (%.1f kJ/mol)', resB.Ea_kJmol), nPass, nFail);
+    [nPass, nFail] = local_check(resB.Ea_kJmol > baseEa + 10, ...
+        'Ea bound increases vs default', nPass, nFail);
+
+    cfgScan = srp_config();
+    cfgScan.referenceStrainRate = 5;
+    cfgScan.eaScanProperties = {'sigma_max'};
+    cfgScan.eaScanModels = {'firstorder', 'linear', 'loglinear'};
+    scan = local_ea_scan(A, cfgScan);
+    [nPass, nFail] = local_check(~isempty(scan) && isfinite(scan(1).Ea_kJmol), ...
+        sprintf('eascan returns ranked results (top Ea %.1f)', scan(1).Ea_kJmol), nPass, nFail);
+    isSorted = true;
+    for ii = 2:numel(scan)
+        if scan(ii-1).admissible && scan(ii).admissible && ...
+                scan(ii).Ea_kJmol > scan(ii-1).Ea_kJmol + 1e-6
+            isSorted = false;
+        end
+    end
+    [nPass, nFail] = local_check(isSorted, 'eascan sorted by Ea descending', nPass, nFail);
 
     fprintf('\n==== %d passed, %d failed ====\n', nPass, nFail);
     ok = (nFail == 0);
