@@ -632,15 +632,46 @@ function res = srp_service_life(A, cfg, model)
     res.property = prop; res.refStrainRate = refRate;
     res.kineticModel = cfg.kineticModel; res.temps_C = temps;
 
-    fit = local_global_fit(t, T, P, cfg.kineticModel, cfg.healthDirection, R);
+    % ----- primary kinetic fit (as configured) -----
+    fit       = local_global_fit(t, T, P, cfg.kineticModel, cfg.healthDirection, R);
+    usedModel = cfg.kineticModel;
+    source    = 'kinetic_global';
+    P_fail    = local_failure_threshold(cfg, fit.P0);
+    sLife     = fit.tFail(P_fail, cfg.serviceTemp_C);
+
+    % ----- automatic fallback when the configured model never reaches P_fail
+    %       (e.g. a first-order asymptote Pinf sitting above the threshold) -----
+    if ~(isfinite(sLife) && sLife > 0)
+        fbList = {'loglinear', 'linear'};
+        for m = 1:numel(fbList)
+            if strcmpi(fbList{m}, cfg.kineticModel); continue; end
+            try
+                fitFB = local_global_fit(t, T, P, fbList{m}, cfg.healthDirection, R);
+            catch; continue; end
+            P_failFB = local_failure_threshold(cfg, fitFB.P0);
+            sLifeFB  = fitFB.tFail(P_failFB, cfg.serviceTemp_C);
+            if isfinite(sLifeFB) && sLifeFB > 0
+                warning('srp_service_life:fallback', ...
+                    ['Configured "%s" kinetic model never reaches the failure threshold ' ...
+                     '(fitted asymptote Pinf is above P_fail), so service life is undefined.\n' ...
+                     '  -> Falling back to a monotonic "%s" extrapolation for the numbers below.\n' ...
+                     '  To control this, set one of:\n' ...
+                     '     cfg.kineticModel   = ''%s''      (use a monotonic model directly)\n' ...
+                     '     cfg.failureMode    = ''absolute''; cfg.failureAbsolute = <value>\n' ...
+                     '     cfg.failureFraction= <larger, e.g. 0.7>   (smaller loss = reached sooner)\n' ...
+                     '     cfg.healthProperty = ''sigma_max'' or another property that degrades clearly'], ...
+                    cfg.kineticModel, fbList{m}, fbList{m});
+                fit = fitFB; usedModel = fbList{m};
+                source = ['kinetic_fallback_' fbList{m}];
+                P_fail = P_failFB; sLife = sLifeFB;
+                break;
+            end
+        end
+    end
+
+    res.kineticModel = usedModel;
     res.P0 = fit.P0; res.Pinf = fit.Pinf;
     res.Ea_kJmol = fit.Ea_kJmol; res.kineticFitR2 = fit.R2; res.Pfun = fit.Pfun;
-
-    switch lower(cfg.failureMode)
-        case 'relative'; P_fail = cfg.failureFraction * fit.P0;
-        case 'absolute'; P_fail = cfg.failureAbsolute;
-        otherwise; error('srp_service_life:mode','Unknown failureMode "%s".', cfg.failureMode);
-    end
     res.P_fail = P_fail;
 
     nT = numel(temps);
@@ -659,12 +690,12 @@ function res = srp_service_life(A, cfg, model)
 
     Ts_K = cfg.serviceTemp_C + 273.15;
     res.serviceTemp_C     = cfg.serviceTemp_C;
-    res.serviceLife_days  = fit.tFail(P_fail, cfg.serviceTemp_C);
-    res.serviceLife_years = res.serviceLife_days / 365.25;
+    res.serviceLife_days  = sLife;
+    res.serviceLife_years = sLife / 365.25;
     res.arrheniusSlope     = fit.Ea_kJmol * 1000 / R;
-    res.arrheniusIntercept = log(res.serviceLife_days) - res.arrheniusSlope / Ts_K;
+    res.arrheniusIntercept = log(sLife) - res.arrheniusSlope / Ts_K;
     res.tfail_used = exp(res.arrheniusIntercept + res.arrheniusSlope ./ (temps + 273.15));
-    res.source = 'kinetic_global';
+    res.source = source;
 
     ylog = log(tfail_k(:));
     yhat = res.arrheniusIntercept + res.arrheniusSlope ./ (temps + 273.15);
@@ -677,6 +708,14 @@ function res = srp_service_life(A, cfg, model)
         res.arrheniusR2 = NaN;
     end
     res.accelFactor = res.serviceLife_days ./ tfail_k(:);
+end
+
+function Pf = local_failure_threshold(cfg, P0)
+    switch lower(cfg.failureMode)
+        case 'relative'; Pf = cfg.failureFraction * P0;
+        case 'absolute'; Pf = cfg.failureAbsolute;
+        otherwise; error('srp_service_life:mode','Unknown failureMode "%s".', cfg.failureMode);
+    end
 end
 
 function fit = local_global_fit(t, T, P, modelName, direction, R)
@@ -983,9 +1022,13 @@ function local_report(res, cfg)
     fprintf('--------------------------------------------------------\n');
     fprintf(' Health property        : %s (%s)\n', res.property, cfg.healthDirection);
     fprintf(' Pristine value  P0     : %.4g\n', res.P0);
+    fprintf(' Fitted asymptote Pinf  : %.4g\n', res.Pinf);
     fprintf(' Failure threshold Pfail: %.4g  (%s)\n', res.P_fail, cfg.failureMode);
     fprintf(' Kinetic model          : %s\n', res.kineticModel);
     fprintf(' t_fail source          : %s\n', res.source);
+    if ~isempty(strfind(res.source, 'fallback'))
+        fprintf(' NOTE: configured model could not reach Pfail; monotonic fallback used.\n');
+    end
     for i = 1:numel(res.temps_C)
         fprintf('   %2g C : t_fail = %8.1f days (kinetic) ', res.temps_C(i), res.tfail_kinetic(i));
         if isfinite(res.tfail_ml(i)); fprintf('| %8.1f days (ML)', res.tfail_ml(i)); end
