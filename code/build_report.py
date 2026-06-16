@@ -251,6 +251,109 @@ para(
     "Arrhenius acceleration model."
 )
 
+doc.add_heading("1.1 Composition and microstructure", level=2)
+para(
+    "A composite solid propellant is engineered at the level of its "
+    "microstructure, and its long-term behaviour cannot be understood without "
+    "appreciating that structure. A representative AP/HTPB formulation contains "
+    "roughly 85\u201390 % by mass of solid fillers held together by only "
+    "10\u201315 % of polymeric binder. The constituents play distinct roles:"
+)
+bullet("a cross-linked elastomer (typically HTPB cured with a di- or "
+       "tri-isocyanate) that provides the continuous, load-bearing, "
+       "rubber-like matrix and gives the grain its compliance and strain "
+       "capability.",
+       bold_lead="Binder \u2014 ")
+bullet("ammonium perchlorate (AP), usually as a bimodal blend of coarse and "
+       "fine particles to maximise solids loading; it supplies the oxygen for "
+       "combustion and dominates the volume fraction.",
+       bold_lead="Oxidiser \u2014 ")
+bullet("aluminium powder, which raises the flame temperature and specific "
+       "impulse and suppresses combustion instability.",
+       bold_lead="Metallic fuel \u2014 ")
+bullet("bonding agents that strengthen the binder\u2013filler interface, "
+       "plasticisers that lower the glass-transition temperature and improve "
+       "low-temperature strain capability, cure catalysts, antioxidants and "
+       "burn-rate modifiers.",
+       bold_lead="Additives \u2014 ")
+para(
+    "Mechanically, the cured grain is a particulate composite: stiff inclusions "
+    "in a soft matrix bonded across an interface. Most aging phenomena, and "
+    "most failures, originate at that binder\u2013filler interface or in the "
+    "binder network itself, which is why both the chemistry of the binder and "
+    "the integrity of the interface feature so prominently in the models that "
+    "follow."
+)
+
+doc.add_heading("1.2 Structural failure modes", level=2)
+para(
+    "\u201cFailure\u201d of a propellant grain is not a single event but a set "
+    "of distinct mechanical limit states, any of which can render the motor "
+    "unsafe or unreliable:"
+)
+bullet("surface or bore cracking under thermal-shrinkage and pressurisation "
+       "strains, which exposes additional burning area and can raise chamber "
+       "pressure beyond design limits.",
+       bold_lead="Cracking \u2014 ")
+bullet("separation of the grain from the case/insulation (case-bond failure), "
+       "which creates an uncontrolled burning surface and is a leading cause of "
+       "catastrophic motor failure.",
+       bold_lead="Debonding \u2014 ")
+bullet("microscopic separation of binder from filler particles (\u201c"
+       "dewetting\u201d) that nucleates voids, reduces modulus and strength, and "
+       "is an early precursor to macroscopic cracking.",
+       bold_lead="Dewetting \u2014 ")
+bullet("loss of strain capability as the binder embrittles with age, so that "
+       "strains that were once tolerable now exceed the rupture limit, "
+       "especially at low temperature.",
+       bold_lead="Embrittlement \u2014 ")
+para(
+    "Because these limit states are governed by mechanical properties "
+    "(modulus, strength, strain-to-failure, bond strength) that all drift with "
+    "age, tracking the degradation of a representative property over time is a "
+    "rational basis for service-life prediction \u2014 exactly the approach "
+    "taken by the model implemented here."
+)
+
+doc.add_heading("1.3 Aging mechanisms in detail", level=2)
+para(
+    "The two aging families introduced above act through several concrete "
+    "physico-chemical processes. On the chemical side, the isocyanate-cured "
+    "HTPB network continues to react long after manufacture: post-cure "
+    "cross-linking and oxidative cross-linking progressively tighten the "
+    "network, raising modulus and hardness while lowering strain capability; "
+    "competing chain scission and hydrolysis break the network and soften it; "
+    "and plasticiser and bonding-agent migration changes the local stiffness "
+    "near interfaces. Layton\u2019s observation [4] that mechanical properties "
+    "drift roughly with the logarithm of aging time is a direct signature of "
+    "these diffusion- and reaction-limited processes."
+)
+para(
+    "On the physical side, repeated thermal cycling and sustained storage "
+    "loads accumulate irreversible micro-damage \u2014 dewetting, micro-void "
+    "growth and interface debonding \u2014 that softens the material and "
+    "reduces its strength. The two families compete: a propellant may first "
+    "stiffen (chemical hardening dominant) and later soften (damage and "
+    "scission dominant), producing the non-monotonic property\u2013time curves "
+    "that Adel and Liang [10] model explicitly. Crucially, the rates of nearly "
+    "all of these processes rise approximately exponentially with temperature, "
+    "which is the physical justification for the Arrhenius treatment in "
+    "Section 4.1."
+)
+
+doc.add_heading("1.4 Why service-life prediction matters", level=2)
+para(
+    "Service-life prediction is the technical backbone of stockpile "
+    "surveillance and service-life-extension programmes (SLEP). A defensible "
+    "remaining-life estimate determines when a motor must be inspected, "
+    "re-qualified, refurbished or disposed of, and it directly trades off "
+    "safety against the very high cost of prematurely scrapping serviceable "
+    "munitions. Under-prediction wastes assets and readiness; over-prediction "
+    "risks a catastrophic failure in storage, transport or flight. The models "
+    "reviewed here exist to make that estimate as quantitative, repeatable and "
+    "physically grounded as the available data allow."
+)
+
 # =========================================================================
 # 2. PROBLEM STATEMENT
 # =========================================================================
@@ -286,6 +389,39 @@ para(
     "range of storage temperatures."
 )
 
+doc.add_heading("2.1 Formal statement", level=2)
+para(
+    "Let P(t, T) be a normalised mechanical property (for example secant "
+    "modulus, tensile strength or strain-to-failure divided by its initial "
+    "value) that evolves with aging time t at absolute temperature T. Let "
+    "P_crit be the smallest acceptable value of that property before a limit "
+    "state of Section 1.2 is reached. The service life t_L at the storage "
+    "temperature T_s is defined implicitly by")
+equation("P(t_L, T_s) = P_crit", "I")
+para(
+    "Because tests are run at one or more elevated temperatures T_test > T_s, "
+    "the property is actually measured as P(t_test, T_test), and a temperature-"
+    "acceleration model is required to map that accelerated observation back to "
+    "the slow process at T_s. Service-life prediction is therefore a coupled "
+    "problem: a degradation law that describes how P decays with time, plus an "
+    "acceleration law that describes how that decay speeds up with temperature. "
+    "The implementation in this report adopts a power-law degradation rule "
+    "(Section 4.2) and an Arrhenius acceleration law (Section 4.1)."
+)
+
+doc.add_heading("2.2 Choice of failure criterion", level=2)
+para(
+    "The criterion P_crit must be chosen to reflect the dominant limit state. "
+    "Common choices include a maximum allowable loss of strain capability "
+    "(to guard against cracking under thermal/pressurisation strain), a minimum "
+    "allowable bond strength (to guard against case debonding), or a maximum "
+    "allowable modulus increase (to guard against embrittlement). In the "
+    "present model a single normalised property with a threshold of "
+    "P_crit = 0.3 (i.e. failure when the property has fallen to 30 % of its "
+    "initial value) is used as a transparent, generic surrogate; the framework "
+    "is unchanged if a different property or threshold is substituted."
+)
+
 # =========================================================================
 # 3. LITERATURE REVIEW
 # =========================================================================
@@ -299,78 +435,156 @@ para(
 
 doc.add_heading("3.1 Cumulative-damage failure models", level=2)
 para(
-    "Cumulative-damage approaches treat failure as the accumulation of a "
-    "damage measure until it reaches a critical value. Biggs, Nestor et al. "
-    "[1] patent a stress-based failure integral for filled polymeric "
-    "materials, combining regression-based parameter extraction, numerical "
-    "integration of the damage rate and Monte-Carlo estimation to produce a "
-    "probabilistic failure prediction. Kunz [8] refines the parameter "
-    "determination for Laheru-type linear cumulative-damage (LCD) models and "
-    "explicitly warns against the bias that regression-based identification "
-    "can introduce, motivating careful fitting of degradation exponents such "
-    "as the one used in this report."
+    "Cumulative-damage approaches treat failure not as a single overload event "
+    "but as the gradual accumulation of a scalar damage measure D until it "
+    "reaches a critical value (conventionally D = 1). They are attractive for "
+    "propellants because the grain experiences a long, variable history of "
+    "thermal and mechanical loads, no single one of which would cause failure "
+    "on its own."
+)
+para(
+    "Biggs, Nestor et al. [1] (US 6,301,970) patent a stress-based failure "
+    "integral for filled polymeric materials. Their method accumulates damage "
+    "as a time integral of a stress- (or strain-) dependent rate, extracts the "
+    "rate-law parameters by regression against laboratory data, integrates the "
+    "damage numerically over the predicted load history, and \u2014 importantly "
+    "\u2014 wraps the whole calculation in a Monte-Carlo loop so that scatter in "
+    "the material parameters and loads propagates into a probability of "
+    "failure rather than a single deterministic number. This probabilistic "
+    "framing is what distinguishes the method from a simple safety-factor "
+    "check."
+)
+para(
+    "Kunz [8] addresses the weakest link in any such model \u2014 the "
+    "parameters. Working with Laheru-type linear cumulative-damage (LCD) "
+    "models, he refines how the damage-law constants are determined from test "
+    "data and demonstrates that ordinary regression can be biased, "
+    "systematically over- or under-estimating life if the fitting variables "
+    "and weighting are chosen carelessly. His caution is directly relevant "
+    "here: the power-law exponent n used in this report\u2019s model is exactly "
+    "the kind of regression-fitted parameter to which the predicted life is "
+    "highly sensitive (see Section 6.3)."
 )
 
 doc.add_heading("3.2 Time\u2013temperature superposition and viscoelastic "
                 "characterisation", level=2)
 para(
-    "Because the binder is visco-elastic, its stiffness and strength depend on "
-    "both time and temperature. Villar and Rezende [2] apply the time\u2013"
-    "temperature superposition (TTS) principle to thermally aged composite "
-    "propellant, showing how Williams\u2013Landel\u2013Ferry (WLF) shift "
-    "factors collapse tensile data measured at many temperatures onto a single "
-    "master curve, and how aging changes are modest at short times but become "
-    "significant at long storage times. Tapia-Romero, Dehonor-G\u00f3mez and "
-    "Lugo-Uribe [9] provide a practical route for converting frequency-domain "
-    "dynamic-mechanical-analysis (DMA) data into Prony-series relaxation-"
-    "modulus parameters, supplying the constitutive input needed by the "
-    "viscoelastic models below."
+    "Because the binder is visco-elastic, its stiffness and strength depend not "
+    "only on temperature but on the rate and duration of loading. The most "
+    "powerful organising idea for such materials is time\u2013temperature "
+    "superposition (TTS): the observation that the effect of raising "
+    "temperature is, to first order, equivalent to extending the time of "
+    "observation. Data taken over an experimentally accessible time window at "
+    "many temperatures can therefore be shifted horizontally on a logarithmic "
+    "time axis to build a single \u201cmaster curve\u201d spanning many decades "
+    "of effective time."
+)
+para(
+    "Villar and Rezende [2] apply exactly this principle to thermally aged "
+    "composite propellant. Using Williams\u2013Landel\u2013Ferry (WLF) shift "
+    "factors they collapse tensile data measured at several temperatures onto "
+    "one master curve, and they show that aging shifts this curve only modestly "
+    "at short times but significantly at long storage times \u2014 precisely "
+    "the regime that service-life prediction cares about. Their work both "
+    "validates the use of accelerated testing and quantifies how the master "
+    "curve itself migrates as the material ages."
+)
+para(
+    "Tapia-Romero, Dehonor-G\u00f3mez and Lugo-Uribe [9] supply the missing "
+    "constitutive ingredient. They give a practical, numerically robust route "
+    "for converting frequency-domain dynamic-mechanical-analysis (DMA) data "
+    "(storage and loss modulus versus frequency) into a time-domain Prony "
+    "series for the relaxation modulus. That Prony series (Eq. 6) is the exact "
+    "form of material input required by the finite-element structural analyses "
+    "discussed next, closing the loop from raw laboratory data to a usable "
+    "constitutive model."
 )
 
 doc.add_heading("3.3 Structural / finite-element assessment", level=2)
 para(
+    "Material-level property curves only become a service-life statement when "
+    "they are combined with the actual stresses and strains in the grain. "
     "Y\u0131ld\u0131r\u0131m and \u00d6z\u00fcpek [3] perform a non-linear "
-    "visco-elastic finite-element structural assessment of a solid-propellant "
-    "rocket motor, combining thermal and pressure load cases to identify hoop "
-    "strain and case-bond stress as the governing failure indicators, and "
-    "quantifying how aging and accumulated damage erode the structural margin. "
-    "This work links the material-level degradation models to grain-level "
-    "structural failure criteria."
+    "visco-elastic finite-element (FE) structural assessment of a solid-"
+    "propellant rocket motor for this purpose. They model the grain with a "
+    "time- and temperature-dependent constitutive law (of the Prony/WLF type "
+    "above) and subject it to the realistic combined load cases the motor "
+    "experiences \u2014 cure-shrinkage and thermal cool-down, low- and high-"
+    "temperature soak, and ignition pressurisation."
+)
+para(
+    "Their analysis identifies the inner-bore hoop strain and the case-bond "
+    "(grain-to-case interface) stress as the two governing failure indicators, "
+    "and it quantifies how aging and accumulated damage progressively erode the "
+    "margin between the applied strain/stress and the material\u2019s "
+    "(shrinking) capability. This is the bridge between the property-level "
+    "models of this report and a true structural verdict: the degradation law "
+    "predicts how capability falls, while the FE model predicts the demand it "
+    "must withstand."
 )
 
 doc.add_heading("3.4 Chemical / kinetic aging studies", level=2)
 para(
     "Layton [4] reports chemical structural aging studies on an HTPB "
-    "propellant, relating gel growth and mechanical-property drift to the "
-    "logarithm of aging time and highlighting the influence of bonding-agent "
-    "chemistry. These kinetic observations underpin the use of an Arrhenius "
-    "temperature dependence for the aging rate, as adopted in the present "
-    "implementation."
+    "propellant that explain why the macroscopic properties drift the way they "
+    "do. By tracking gel content (a measure of network cross-link density) and "
+    "correlating it with mechanical-property change, he shows that the drift "
+    "scales approximately with the logarithm of aging time \u2014 the signature "
+    "of diffusion- and reaction-limited network evolution \u2014 and that the "
+    "chemistry of the bonding agent strongly influences both the rate and the "
+    "direction (hardening vs. softening) of the change."
+)
+para(
+    "These kinetic findings matter for the present model in two ways. First, "
+    "they justify treating the aging rate with an Arrhenius temperature "
+    "dependence, because the underlying reactions are thermally activated. "
+    "Second, the logarithmic-in-time behaviour they observe is consistent with "
+    "the power-law/log-type degradation form adopted in Section 4.2, giving the "
+    "chosen functional form a physical, not merely empirical, basis."
 )
 
 doc.add_heading("3.5 Handbook and nomograph design methods", level=2)
 para(
-    "Practical, rapid-estimate methods are documented by Waterman and Corley "
-    "[5], who present an early handbook-style treatment of aging, thermal "
-    "cycling and strain-based failure estimation for tactical propellant "
-    "grains, and by the Aerojet Solid Propulsion Company [6], whose structural-"
-    "design nomograph (NWC TM 3365) converts multiple geometric and material "
-    "variables into rapid design estimates for thermal-cycling failure. These "
-    "methods trade fidelity for speed and remain useful for first-order "
-    "screening."
+    "Before routine finite-element analysis was affordable, the field relied on "
+    "consolidated handbook and nomograph methods that compress decades of test "
+    "experience into rapid hand calculations \u2014 and these remain valuable "
+    "today for first-order screening and sanity checks. Waterman and Corley [5] "
+    "present an early handbook-style treatment of aging, thermal cycling and "
+    "strain-based failure estimation for tactical propellant grains, giving "
+    "engineers tabulated correlations and worked procedures rather than a "
+    "bespoke analysis for every motor."
+)
+para(
+    "The Aerojet Solid Propulsion Company structural-design nomograph (NWC TM "
+    "3365) [6] takes the same spirit further: it encodes the relationships "
+    "between multiple geometric and material variables (grain web, bore "
+    "geometry, modulus, thermal-expansion mismatch, temperature swing) as a "
+    "nomograph that returns a thermal-cycling failure estimate by aligning a "
+    "straight-edge across calibrated scales. These methods deliberately trade "
+    "fidelity for speed and transparency; the compact Arrhenius model in this "
+    "report sits in the same \u201crapid-estimate\u201d tradition."
 )
 
 doc.add_heading("3.6 Non-destructive and full-life prediction methods", level=2)
 para(
-    "Husband and Roberto [7] patent a service-life analysis that uses dynamic "
-    "mechanical properties as a non-destructive indicator of aging rate, "
-    "allowing the same motor to be re-assessed over its life without "
-    "destructive sampling. Finally, Adel and Liang [10] present a service-life "
-    "prediction for an AP/Al/HTPB propellant that explicitly accounts for "
-    "softening aging behaviour, capturing the competing hardening and "
-    "softening pathways and reporting a shelf-life estimate of approximately "
-    "13 years under the studied conditions \u2014 a useful benchmark for the "
-    "results obtained here."
+    "Husband and Roberto [7] (US 5,038,295) patent a service-life analysis that "
+    "uses dynamic mechanical properties as a non-destructive indicator of aging "
+    "rate. The key advantage is that the same motor (or a witness sample) can "
+    "be re-measured repeatedly over its life without destructive sectioning, so "
+    "the actual aging trajectory of a specific asset can be tracked and its "
+    "remaining life updated \u2014 a capability that purely predictive models "
+    "cannot provide on their own."
+)
+para(
+    "Adel and Liang [10] present a full service-life prediction for an AP/Al/"
+    "HTPB propellant that, unusually, accounts explicitly for softening aging "
+    "behaviour. Rather than assuming monotonic hardening, they model the "
+    "competition between cross-linking (hardening) and chain-scission/damage "
+    "(softening) pathways, capturing the non-monotonic property\u2013time curve "
+    "that real propellants often show, and they report a shelf-life estimate of "
+    "approximately 13 years under the studied conditions. That figure is the "
+    "most direct published benchmark for the results obtained here and is used "
+    "for comparison in Section 6."
 )
 
 # =========================================================================
@@ -387,39 +601,89 @@ para(
 
 doc.add_heading("4.1 Arrhenius temperature-acceleration model", level=2)
 para(
-    "Chemical aging rates increase with temperature according to the Arrhenius "
-    "law. The rate constant k at absolute temperature T is")
+    "The physical premise is that aging is controlled by thermally activated "
+    "chemical reactions. The fraction of molecules with enough energy to clear "
+    "the reaction\u2019s energy barrier follows a Boltzmann factor, so the "
+    "reaction (and hence aging) rate constant k at absolute temperature T obeys "
+    "the Arrhenius law:")
 equation("k(T) = A\u2080 \u00b7 exp( \u2212E\u2090 / (R\u00b7T) )", "1")
 para(
-    "where E\u2090 is the activation energy (J/mol), R the universal gas "
-    "constant (8.314 J\u00b7mol\u207b\u00b9\u00b7K\u207b\u00b9) and A\u2080 a "
-    "pre-exponential factor. The ratio of aging rate at a test temperature "
-    "T_test to that at the service temperature T_service defines the "
-    "acceleration factor (AF):")
-equation("AF = exp[ (E\u2090 / R) \u00b7 ( 1/T_test \u2212 1/T_service ) ]", "2")
+    "Here E\u2090 is the activation energy (J/mol) \u2014 the height of the "
+    "energy barrier and the single most influential parameter in the whole "
+    "extrapolation \u2014 R is the universal gas constant "
+    "(8.314 J\u00b7mol\u207b\u00b9\u00b7K\u207b\u00b9), T is the absolute "
+    "temperature (K), and A\u2080 is the pre-exponential (frequency) factor "
+    "that absorbs the collision rate and orientation statistics. For solid-"
+    "propellant binders E\u2090 typically lies in the range 60\u2013100 kJ/mol; "
+    "the value of 80 kJ/mol used here is representative."
+)
 para(
-    "AF > 1 means aging at the test temperature is faster than at the service "
-    "temperature, so a short hot test represents a long cool storage period. "
-    "In the code, the acceleration factor is multiplied by a property-based "
-    "pre-factor A obtained from the test point (see Section 5)."
+    "The pre-exponential factor A\u2080 is usually unknown, but it cancels when "
+    "we take the ratio of the rate at an elevated test temperature T_test to "
+    "the rate at the service temperature T_service. That ratio is the "
+    "acceleration factor, AF:")
+equation("AF = k(T_test) / k(T_service)", "2a")
+para("Substituting Eq. (1) and cancelling A\u2080 gives the working form used "
+     "throughout this report:")
+equation("AF = exp[ (E\u2090 / R) \u00b7 ( 1/T_service \u2212 1/T_test ) ]", "2")
+para(
+    "AF > 1 means aging proceeds faster at the test temperature than in "
+    "storage, so a short hot test reproduces a long period of cool storage \u2014 "
+    "the whole basis of accelerated aging. Because AF depends on the reciprocal "
+    "of absolute temperature inside an exponential, it is extremely sensitive: "
+    "a 10 \u00b0C rise near room temperature roughly doubles to triples the rate "
+    "for E\u2090 in the typical range (the familiar \u201cevery 10 \u00b0C "
+    "halves the life\u201d rule of thumb). The chief assumptions are that a "
+    "single dominant reaction (one E\u2090) governs aging over the whole "
+    "temperature range and that the failure mechanism itself does not change "
+    "with temperature \u2014 assumptions that can break down if a new mechanism "
+    "is activated at high test temperatures, which is why test temperatures are "
+    "kept as low as the test duration allows."
+)
+para(
+    "Equation (2) is the conventional form, in which AF > 1 for T_test > "
+    "T_service. The implemented script computes a closely related temperature-"
+    "scaling quantity that uses the reciprocal difference with the opposite "
+    "sign and folds in the power-law pre-factor A; the exact relationship and "
+    "its consequences are set out transparently in Section 5.2. The physical "
+    "conclusion is unchanged: predicted life falls as temperature rises."
 )
 
 doc.add_heading("4.2 Power-law property-degradation (cumulative damage)", level=2)
 para(
-    "The normalised mechanical property E is assumed to follow a power law in "
-    "aging time t:")
+    "Having captured how temperature scales the aging rate, a second law is "
+    "needed for how the property itself decays as that aging accumulates. "
+    "Motivated by the logarithmic-in-time drift observed experimentally "
+    "(Section 3.4), the normalised mechanical property E is modelled as a power "
+    "law in aging time t:")
 equation("E(t) = A \u00b7 t\u207f", "3")
 para(
-    "with degradation exponent n (negative for a property that decays with "
-    "time). Inverting Eq. (3) gives the time t_f at which the property reaches "
-    "the failure threshold E_crit:")
+    "where n is the degradation exponent and A a pre-factor. For a property "
+    "that decays with time n is negative, so E falls monotonically as t grows; "
+    "the magnitude of n sets how quickly. The pre-factor A is not free \u2014 it "
+    "is anchored to the property actually measured at the known test duration "
+    "t_test, through")
+equation("A = E_test / (t_test)\u207f", "3a")
+para(
+    "so that the curve passes exactly through the measured test point "
+    "(E_test, t_test). This is what ties the abstract law to real data."
+)
+para(
+    "Failure is declared when the property has decayed to the critical "
+    "threshold E_crit. Setting E(t_f) = E_crit in Eq. (3) and solving for the "
+    "failure time t_f gives, after dividing by A and raising both sides to the "
+    "power 1/n:")
 equation("t_f = ( E_crit / A )^(1/n)", "4")
 para(
-    "The pre-factor A is anchored to the measured property at the known test "
-    "duration through A = E_test / (t_test)\u207f. Multiplying t_f by the "
-    "Arrhenius acceleration factor of Eq. (2) converts the failure time into an "
-    "equivalent service life at the storage temperature, which is then "
-    "expressed in years."
+    "Equation (4) is the time, in test-equivalent units, for the property to "
+    "fall from its initial value to the failure threshold. Multiplying t_f by "
+    "the temperature-scaling factor of Section 4.1 converts it into an "
+    "equivalent service life at the storage temperature, which is finally "
+    "divided by 365.25 to express the result in years. The chief assumptions "
+    "are that a single power law holds over the whole life (no change of "
+    "mechanism) and that the property\u2013time curve is monotonic \u2014 the "
+    "latter being exactly the simplification that Adel and Liang [10] relax by "
+    "allowing competing hardening and softening."
 )
 
 doc.add_heading("4.3 Time\u2013temperature superposition (WLF)", level=2)
@@ -460,6 +724,30 @@ para(
     "single-condition t_f used in such summations."
 )
 
+doc.add_heading("4.6 Worked example (one temperature)", level=2)
+para(
+    "It is worth following the arithmetic for a single temperature so the code "
+    "in Section 5 is transparent. Take the service/reference case T_service = "
+    "300.15 K (27 \u00b0C) and the test point t_test = 60 days, E_test = 1, with "
+    "n = \u22120.4, E_crit = 0.3 and E\u2090 = 80 000 J/mol."
+)
+bullet("Pre-factor (Eq. 3a): A = 1 / 60^(\u22120.4) = 60^(0.4) \u2248 5.143.")
+bullet("Failure time (Eq. 4): t_f = (0.3 / 5.143)^(1/\u22120.4) = "
+       "(0.05833)^(\u22122.5) \u2248 1217 days. Because A and the threshold are "
+       "the same at every temperature, t_f is the same (\u2248 1217 days) for "
+       "every row of the results table.")
+bullet("Temperature scaling at, say, 25 \u00b0C (298.15 K): the exponent is "
+       "(E\u2090/R)\u00b7(1/298.15 \u2212 1/300.15) = 9622.3 \u00d7 2.234\u00d7"
+       "10\u207b\u2075 \u2248 0.215, giving exp(0.215) \u2248 1.240; multiplied "
+       "by A \u2248 5.143 this is the script\u2019s AF \u2248 6.38.")
+bullet("Equivalent service life: t_f \u00d7 AF = 1217 \u00d7 6.38 \u2248 7761 "
+       "days \u2248 21.3 years \u2014 the first row of Table 2.")
+para(
+    "Repeating the last two steps for each temperature in the list produces the "
+    "full results of Section 6. The only quantity that changes from row to row "
+    "is the temperature-dependent scaling factor."
+)
+
 # =========================================================================
 # 5. IMPLEMENTATION (CODE)
 # =========================================================================
@@ -476,7 +764,36 @@ code_block(os.path.join(CODE_DIR, "service_life_arrhenius.m"),
            "Listing 1. MATLAB implementation of the Arrhenius / power-law "
            "service-life model.")
 
-doc.add_heading("5.2 Mapping of code variables to equations", level=2)
+doc.add_heading("5.2 Step-by-step walkthrough", level=2)
+para("The script executes in four logical stages:")
+bullet("the activation energy E\u2090, gas constant R, reference temperature "
+       "T_service, test duration t_test, measured property E_test, failure "
+       "threshold E_crit and degradation exponent n are defined. These are the "
+       "only inputs a user normally changes.",
+       bold_lead="1. Define constants \u2014 ")
+bullet("the list temperatures_C is converted to kelvin (T_test = 273.15 + "
+       "temperatures_C), and empty arrays tf_days and tf_years are "
+       "pre-allocated to hold the per-temperature results.",
+       bold_lead="2. Build the temperature sweep \u2014 ")
+bullet("for each temperature the script (a) computes the power-law pre-factor "
+       "A = E_test / t_test^n (Eq. 3a); (b) forms the exponent X = (E\u2090/R)"
+       "\u00b7(1/T_test \u2212 1/T_service) and the scaling factor AF = A\u00b7"
+       "exp(X); (c) computes the failure time tf = (E_crit/A)^(1/n) (Eq. 4); "
+       "and (d) forms the equivalent service life t_service_eq = tf\u00b7AF, "
+       "storing tf in days and t_service_eq/365.25 in years.",
+       bold_lead="3. Loop over temperatures \u2014 ")
+bullet("the service-life-versus-temperature curve is plotted and the "
+       "temperature/service-life pairs are printed as a table.",
+       bold_lead="4. Plot and tabulate \u2014 ")
+para(
+    "Because A, E_crit and n do not change inside the loop, the failure time tf "
+    "is computed to the same value (\u2248 1217 days) on every iteration; only "
+    "the exponent X \u2014 and therefore AF and the final service life \u2014 "
+    "varies with temperature. This is the numerical reason the t_f column in "
+    "Table 2 is constant."
+)
+
+doc.add_heading("5.3 Mapping of code variables to equations", level=2)
 para("The key variables in Listing 1 correspond to the governing equations as "
      "follows:")
 map_rows = [
@@ -501,17 +818,34 @@ for r in map_rows:
 caption("Table 1. Correspondence between code variables and governing equations.")
 
 para(
-    "A note on the model as coded: the same pre-factor A is used both to anchor "
-    "the power-law property curve (Eq. 3) and as a multiplier on the Arrhenius "
-    "factor. As a result the failure time t_f is identical for every "
-    "temperature (1217 days), and the temperature dependence of the predicted "
-    "service life enters entirely through the acceleration factor AF. This is a "
-    "transparent first-order screening model; refining it so that the "
-    "temperature dependence acts on t_f directly (rather than through a "
-    "constant-t_f \u00d7 AF product) is identified as future work in Section 7."
+    "Two implementation details deserve to be stated plainly, because they "
+    "affect how the results are interpreted:"
+)
+bullet("the script\u2019s AF = A\u00b7exp[(E\u2090/R)(1/T_test \u2212 "
+       "1/T_service)] differs from the conventional acceleration factor of "
+       "Eq. (2) in two ways. It multiplies by the power-law pre-factor A, and "
+       "it uses the reciprocal difference with the opposite sign. Consequently "
+       "the script\u2019s AF decreases with temperature (it equals A at "
+       "T_service and falls as T_test rises), which is what makes the predicted "
+       "service life shorten at high temperature. It is therefore best read as "
+       "a combined temperature-scaling factor rather than the textbook AF; "
+       "Figure 2 plots this quantity.",
+       bold_lead="Sign and content of AF \u2014 ")
+bullet("the same pre-factor A anchors the power-law curve (Eq. 3) and also "
+       "multiplies the exponential, so the failure time t_f is identical for "
+       "every temperature (\u2248 1217 days) and all the temperature dependence "
+       "enters through AF.",
+       bold_lead="Constant t_f \u2014 ")
+para(
+    "These choices make the script a transparent first-order screening tool "
+    "that produces the physically correct trend (life falls sharply with "
+    "temperature) and realistic magnitudes. A more rigorous variant \u2014 in "
+    "which a temperature-dependent rate constant drives t_f directly (Eq. 1) "
+    "and the conventional AF of Eq. (2) maps test time to service time \u2014 is "
+    "identified as future work in Section 7."
 )
 
-doc.add_heading("5.3 Reproducing the results without MATLAB", level=2)
+doc.add_heading("5.4 Reproducing the results without MATLAB", level=2)
 para(
     "Because a MATLAB licence is not always available, the identical numerical "
     "model is reproduced in Python (generate_results.py) using NumPy and "
@@ -558,11 +892,23 @@ add_figure(os.path.join(FIG_DIR, "service_life_vs_temperature.png"), 5.6,
            "non-linearly with storage temperature.")
 add_figure(os.path.join(FIG_DIR, "acceleration_factor_vs_temperature.png"),
            5.6,
-           "Figure 2. Arrhenius acceleration factor (log scale); AF = 1 near "
-           "the 27 \u00b0C service temperature and rises/falls exponentially "
-           "around it.")
+           "Figure 2. The script\u2019s temperature-scaling factor (log scale): "
+           "it equals the pre-factor A (\u2248 5.14) at the 27 \u00b0C reference "
+           "and decays exponentially as temperature rises, driving the drop in "
+           "service life.")
 
-doc.add_heading("6.1 Discussion", level=2)
+doc.add_heading("6.1 Reading the table", level=2)
+para(
+    "Each row of Table 2 is produced by the worked steps of Section 4.6. The "
+    "failure time t_f is constant at \u2248 1217 days because A, E_crit and n do "
+    "not change with temperature; the temperature dependence enters entirely "
+    "through the scaling factor in the second column. Multiplying the two and "
+    "dividing by 365.25 gives the service life in the final column. For "
+    "example, at 40 \u00b0C the scaling factor is \u2248 1.359, so the service "
+    "life is 1217 \u00d7 1.359 / 365.25 \u2248 4.53 years."
+)
+
+doc.add_heading("6.2 Discussion", level=2)
 para(
     "The results show the expected exponential sensitivity of service life to "
     "temperature. At the 25 \u00b0C the model predicts roughly 21 years of "
@@ -574,18 +920,38 @@ para(
     "AP/Al/HTPB propellant, lending qualitative confidence to the model."
 )
 para(
-    "Two practical implications follow. First, because AF is exponential in "
-    "1/T, modest reductions in storage temperature yield disproportionately "
-    "large gains in service life \u2014 a strong argument for climate-"
-    "controlled magazines. Second, the acceleration factor curve (Figure 2) "
-    "shows why short elevated-temperature tests are so attractive: at 70 "
-    "\u00b0C aging proceeds roughly 70\u00d7 faster than at the service "
-    "temperature implied by the AF ratio, so a few weeks of testing samples "
-    "years of natural aging. The chief caveats are the sensitivity of the "
-    "extrapolation to the assumed activation energy and degradation exponent "
-    "(cf. Kunz\u2019s warning on regression bias [8]) and the model\u2019s "
-    "neglect of competing softening/hardening pathways [10]."
+    "Two practical implications follow. First, because the temperature term is "
+    "exponential in 1/T, modest reductions in storage temperature yield "
+    "disproportionately large gains in service life \u2014 a strong argument for "
+    "climate-controlled magazines. Second, the same exponential sensitivity "
+    "explains why short elevated-temperature tests are so attractive: the "
+    "conventional Arrhenius acceleration factor between 27 \u00b0C and 70 "
+    "\u00b0C is more than 50\u00d7 (exp[(E\u2090/R)(1/300.15 \u2212 1/343.15)] "
+    "\u2248 56), so a few weeks of testing at 70 \u00b0C samples years of "
+    "natural aging. The chief caveats are the model\u2019s strong sensitivity "
+    "to the assumed activation energy and degradation exponent (cf. Kunz\u2019s "
+    "warning on regression bias [8]) and its neglect of competing softening/"
+    "hardening pathways [10]."
 )
+
+doc.add_heading("6.3 Sensitivity to the activation energy", level=2)
+para(
+    "Because E\u2090 sits inside an exponential, the prediction is acutely "
+    "sensitive to it \u2014 the single biggest source of uncertainty in any "
+    "accelerated-aging extrapolation. Figure 3 recomputes the service-life "
+    "curve for E\u2090 = 60, 80 and 100 kJ/mol with all other inputs fixed. "
+    "Raising E\u2090 steepens the curve: it lengthens predicted life at low "
+    "storage temperatures and shortens it at high temperatures, pivoting about "
+    "the 27 \u00b0C reference where the scaling factor is fixed at A. A 25 % "
+    "error in E\u2090 changes the predicted room-temperature life by years, "
+    "which is why E\u2090 should be determined from data spanning several test "
+    "temperatures and reported with an uncertainty band rather than as a single "
+    "number."
+)
+add_figure(os.path.join(FIG_DIR, "sensitivity_activation_energy.png"), 5.6,
+           "Figure 3. Predicted service life for three activation energies; "
+           "the curves pivot about the 27 \u00b0C reference, showing the strong "
+           "leverage of E\u2090 on the extrapolation.")
 
 # =========================================================================
 # 7. CONCLUSION
