@@ -432,8 +432,14 @@ function D = srp_build_dataset(cfg, dataDir)
             warning('srp_build_dataset:skip', 'Skipping unparseable file: %s', fp);
             continue;
         end
-        curve = srp_read_curve(fp, cfg);
-        feat  = srp_extract_features(curve, cfg, info.strain_rate);
+        try
+            curve = srp_read_curve(fp, cfg);
+            feat  = srp_extract_features(curve, cfg, info.strain_rate);
+        catch err
+            warning('srp_build_dataset:readFail', ...
+                'Skipping unreadable file: %s (%s)', fp, err.message);
+            continue;
+        end
         n = n + 1;
         r = struct('file',fp, 'name',info.name, 'temp_C',info.temp_C, ...
                    'days',info.days, 'strain_rate',info.strain_rate, 'sample',info.sample);
@@ -461,9 +467,14 @@ function files = local_list_data_files(dataDir, exts)
     for e = 1:numel(exts)
         L = dir(fullfile(dataDir, ['*' exts{e}]));
         for i = 1:numel(L)
-            if ~L(i).isdir; files{end+1} = fullfile(dataDir, L(i).name); end %#ok<AGROW>
+            nm = L(i).name;
+            if L(i).isdir; continue; end
+            % skip Excel/Office lock & temp files (e.g. "~$T70_d83_v5_s5.xlsx")
+            if numel(nm) >= 2 && (strncmp(nm, '~$', 2) || nm(1) == '~'); continue; end
+            files{end+1} = fullfile(dataDir, nm); %#ok<AGROW>
         end
     end
+    files = unique(files);
     files = sort(files);
 end
 
