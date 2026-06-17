@@ -27,7 +27,7 @@ The report is organised as:
 
 1. Introduction (what solid propellants are and why aging matters)
 2. Problem statement
-3. Literature review (six model families, references [1]–[10])
+3. Literature review (six model families; representative references cited)
 4. Governing models and equations (Arrhenius, power-law/cumulative damage,
    time–temperature superposition, Prony series, linear cumulative damage)
 5. Implementation — the code, with each variable mapped to its equation

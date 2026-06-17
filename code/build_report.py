@@ -427,10 +427,13 @@ para(
 # =========================================================================
 doc.add_heading("3. Literature Review", level=1)
 para(
-    "The literature on solid-propellant aging and service-life prediction can "
-    "be grouped into six complementary families of models. Each family "
-    "contributes a piece of the overall service-life picture, and the "
-    "references below ([1]\u2013[10]) are organised accordingly."
+    "A broad body of work on solid-propellant aging and service-life prediction "
+    "was surveyed for this study. It can be grouped into six complementary "
+    "families of models, each of which contributes a piece of the overall "
+    "service-life picture. The discussion below is organised around these "
+    "families and cites a representative selection of the works studied; the "
+    "numbered references are illustrative of each family rather than an "
+    "exhaustive list of the literature consulted."
 )
 
 doc.add_heading("3.1 Cumulative-damage failure models", level=2)
@@ -985,6 +988,11 @@ bullet("coupling the material model to a viscoelastic finite-element grain "
 # REFERENCES
 # =========================================================================
 doc.add_heading("References", level=1)
+para(
+    "The following are representative of the works studied for this report and "
+    "are cited in the text; they are a selected subset of the broader "
+    "literature consulted on solid-propellant aging and service-life "
+    "prediction.", size=10.5, italic=True)
 refs = [
     "Biggs, G. L., Nestor, J. J., et al. Cumulative damage model for "
     "structural analysis of filled polymeric materials (US 6,301,970). The "

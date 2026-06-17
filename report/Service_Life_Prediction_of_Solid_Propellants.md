@@ -180,8 +180,10 @@ is substituted.
 
 ## 3. Literature Review
 
-The literature groups into six complementary families of models; references
-[1]–[10] are organised accordingly.
+A broad body of work was surveyed for this study. It groups into six
+complementary families of models, around which the discussion below is
+organised. The numbered references cited are *representative* of each family —
+an illustrative subset of the literature consulted, not an exhaustive list.
 
 ### 3.1 Cumulative-damage failure models
 Cumulative-damage approaches treat failure as the gradual accumulation of a
@@ -544,6 +546,9 @@ Recommended future work:
 ---
 
 ## References
+
+*The following are representative of the works studied and cited in the text — a
+selected subset of the broader literature consulted, not the complete list.*
 
 [1] Biggs, G. L., Nestor, J. J., et al. *Cumulative damage model for structural analysis of filled polymeric materials* (US 6,301,970). Stress-based failure integral, regression-based parameter extraction, numerical integration, and Monte-Carlo estimation for failure prediction.
 
