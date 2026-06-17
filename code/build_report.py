@@ -204,9 +204,15 @@ para(
     "a range of storage temperatures. The model predicts a strong, "
     "non-linear reduction in service life with temperature \u2014 from "
     "roughly 21 years at 25 \u00b0C to under 4 months at 70 \u00b0C \u2014 "
-    "consistent with the shelf-life ranges reported in the literature. The "
-    "code, governing formulae and reproducible results are presented together "
-    "with a practical decision tree for service-life assessment."
+    "consistent with the shelf-life ranges reported in the literature. A "
+    "second, more complete data-driven pipeline is also presented: it reads "
+    "accelerated-ageing tensile tests, extracts mechanical properties, trains a "
+    "cross-validated machine-learning surrogate, fits global first-order "
+    "Arrhenius kinetics and predicts service life (recovering an activation "
+    "energy of about 83 kJ/mol and a service life of roughly 30 years for the "
+    "demonstration dataset). Both codes, their governing formulae and "
+    "reproducible results are presented together with a practical decision tree "
+    "for service-life assessment."
 )
 
 doc.add_page_break()
@@ -754,7 +760,17 @@ para(
 # =========================================================================
 # 5. IMPLEMENTATION (CODE)
 # =========================================================================
-doc.add_heading("5. Implementation \u2014 Code", level=1)
+doc.add_heading("5. Implementation \u2014 Code 1: Arrhenius Screening Model",
+                level=1)
+para(
+    "Two codes are presented in this report. Code 1 (this section) is a compact "
+    "Arrhenius screening model that turns a single accelerated test point into a "
+    "service-life-versus-temperature curve. Code 2 (Section 7) is a complete, "
+    "data-driven pipeline that processes raw tensile-test files, trains a "
+    "machine-learning surrogate and fits global ageing kinetics. For each code "
+    "the report gives the source listing, the results it produces, and an "
+    "explanation of the models and formulas it uses."
+)
 para(
     "The accelerated-aging service-life model of Section 4.1\u20134.2 is "
     "implemented in MATLAB. The script sweeps a range of storage/test "
@@ -862,7 +878,7 @@ code_block(os.path.join(CODE_DIR, "generate_results.py"),
 # =========================================================================
 # 6. RESULTS AND DISCUSSION
 # =========================================================================
-doc.add_heading("6. Results and Discussion", level=1)
+doc.add_heading("6. Results and Discussion \u2014 Code 1", level=1)
 para(
     "Using E\u2090 = 80 kJ/mol, a service (reference) temperature of 27 \u00b0C, "
     "a 60-day test point, a failure threshold E_crit = 0.3 and a degradation "
@@ -957,20 +973,202 @@ add_figure(os.path.join(FIG_DIR, "sensitivity_activation_energy.png"), 5.6,
            "leverage of E\u2090 on the extrapolation.")
 
 # =========================================================================
-# 7. CONCLUSION
+# 7. CODE 2 - DATA-DRIVEN PIPELINE
 # =========================================================================
-doc.add_heading("7. Conclusion and Future Work", level=1)
+doc.add_heading("7. Code 2: Data-Driven Service-Life Pipeline", level=1)
+para(
+    "Code 1 needs only a single test point and is intended for rapid screening. "
+    "Code 2 is a complete, self-contained MATLAB pipeline (the function "
+    "abcxyz / srp_pipeline) that performs the whole service-life workflow on a "
+    "real accelerated-ageing campaign: it reads universal-testing-machine (UTM) "
+    "tensile files, extracts mechanical properties from each stress\u2013strain "
+    "curve, aggregates replicates, trains a cross-validated machine-learning "
+    "surrogate of the chosen health property, fits a global first-order "
+    "Arrhenius kinetic model, and extrapolates the service life to the storage "
+    "temperature. It also contains a synthetic-data generator (so it runs with "
+    "no input files) and a built-in self-test."
+)
+para(
+    "Following the requested order, this section gives (7.1) the full source "
+    "listing, (7.2) the results it produces on the built-in demonstration "
+    "dataset, and (7.3) an explanation of the models and formulas it uses."
+)
+
+doc.add_heading("7.1 Source code \u2014 abcxyz.m (srp_pipeline)", level=2)
+para(
+    "Input files are named T<temp>_d<days>_v<rate>_s<sample> (e.g. "
+    "T50_d122_v500_s3.xlsx = 50 \u00b0C, 122 days, 500 mm/min cross-head speed, "
+    "sample 3). Each file holds three UTM columns: disp_mm, load_N, t_min. The "
+    "complete listing follows.")
+code_block(os.path.join(CODE_DIR, "abcxyz.m"),
+           "Listing 3. Full data-driven service-life pipeline (abcxyz.m).")
+
+doc.add_heading("7.2 Results", level=2)
+with open(os.path.join(FIG_DIR, "pipeline_results.json")) as fh:
+    pres = json.load(fh)
+para(
+    "Run on the built-in synthetic campaign (3 ageing temperatures \u00d7 5 "
+    "storage durations \u00d7 3 strain rates \u00d7 10 replicates = "
+    f"{pres['n_files']} tensile files, {pres['n_conditions']} ageing "
+    "conditions, ground-truth activation energy 80 kJ/mol), the pipeline "
+    "extracts the strain capacity eps_at_max as the health property and "
+    "produces the following. (These numbers are reproduced exactly by "
+    "generate_pipeline_results.py.)"
+)
+p2tbl = doc.add_table(rows=1, cols=2)
+p2tbl.style = "Light Grid Accent 1"
+p2tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+for c, h in zip(p2tbl.rows[0].cells, ("Quantity", "Value")):
+    c.paragraphs[0].add_run(h).bold = True
+p2_rows = [
+    ("Tensile files analysed", f"{pres['n_files']}"),
+    ("Ageing conditions", f"{pres['n_conditions']}"),
+    ("Pristine value P0 (eps_at_max)", f"{pres['P0']:.3f}"),
+    ("Failure threshold P_fail (50% of P0)", f"{pres['P_fail']:.3f}"),
+    ("Fitted activation energy E\u2090", f"{pres['Ea_kJmol']:.1f} kJ/mol"),
+    ("Kinetic-fit R\u00b2", f"{pres['kinetic_R2']:.3f}"),
+    ("ML surrogate CV-R\u00b2 (5-fold)", f"{pres['ml_R2']:.3f}"),
+    ("t_fail @ 50 / 60 / 70 \u00b0C (days)",
+     f"{pres['tfail_kinetic_days']['50']:.0f} / "
+     f"{pres['tfail_kinetic_days']['60']:.0f} / "
+     f"{pres['tfail_kinetic_days']['70']:.0f}"),
+    (f"Predicted service life @ {pres['serviceTemp_C']:.0f} \u00b0C",
+     f"{pres['serviceLife_days']:.0f} days "
+     f"({pres['serviceLife_years']:.1f} years)"),
+]
+for q, v in p2_rows:
+    cells = p2tbl.add_row().cells
+    cells[0].paragraphs[0].add_run(q).font.size = Pt(10)
+    cells[1].paragraphs[0].add_run(v).font.size = Pt(10)
+caption("Table 3. Key outputs of the data-driven pipeline on the demonstration "
+        "dataset.")
+
+add_figure(os.path.join(FIG_DIR, "pipeline_degradation_curves.png"), 5.6,
+           "Figure 4. Health property (strain capacity) versus ageing time at "
+           "the reference strain rate. Markers are replicate means \u00b1 1 SD; "
+           "solid lines are the fitted first-order kinetic model; the dashed "
+           "line is the failure threshold P_fail.")
+add_figure(os.path.join(FIG_DIR, "pipeline_arrhenius.png"), 5.6,
+           "Figure 5. Arrhenius plot of ln(t_fail) versus 1/T. The fit recovers "
+           f"E\u2090 \u2248 {pres['Ea_kJmol']:.0f} kJ/mol (ground truth 80) and "
+           f"extrapolates a {pres['serviceLife_years']:.0f}-year service life at "
+           f"{pres['serviceTemp_C']:.0f} \u00b0C.")
+add_figure(os.path.join(FIG_DIR, "pipeline_ml_parity.png"), 4.6,
+           "Figure 6. Cross-validated parity plot for the machine-learning "
+           f"surrogate (CV-R\u00b2 \u2248 {pres['ml_R2']:.2f}); points cluster "
+           "around the 1:1 line, confirming the surrogate generalises.")
+para(
+    "The pipeline recovers the ground-truth activation energy to within a few "
+    "kJ/mol and predicts a service life of roughly "
+    f"{pres['serviceLife_years']:.0f} years at the {pres['serviceTemp_C']:.0f} "
+    "\u00b0C storage temperature, comfortably bracketing the literature shelf-"
+    "life benchmark of ~13 years [10] for a hotter or more conservative duty "
+    "cycle. One honest caveat: because the accelerated window only spans about "
+    "10 % of the property decay, the first-order asymptote P_inf is weakly "
+    "identified (the optimiser drives it well below the physical floor while "
+    "still fitting the data); the activation energy, per-temperature t_fail and "
+    "extrapolated service life are nevertheless robust, because they depend on "
+    "how the decay rate scales with temperature rather than on the far-field "
+    "asymptote."
+)
+
+doc.add_heading("7.3 Models and formulas used", level=2)
+para("The pipeline chains together five models, each summarised below.")
+
+doc.add_heading("7.3.1 Feature extraction from the stress\u2013strain curve",
+                level=3)
+para(
+    "Each UTM curve is converted to engineering stress and strain using the "
+    "specimen geometry (gauge length L\u2080 = 47.75 mm, area A\u2080 = "
+    "24 mm\u00b2):")
+equation("\u03c3 = load / A\u2080 ,   \u03b5 = disp / L\u2080", "8")
+para("From the (\u03b5, \u03c3) curve the code extracts: the tensile strength "
+     "\u03c3_max and the strain at peak stress \u03b5_at_max; the initial "
+     "modulus as the slope of a linear fit over the first 25 % of strain; a "
+     "secant modulus at half the peak stress; the strain at break (where the "
+     "stress first falls below 20 % of \u03c3_max after the peak); and the "
+     "toughness as the area under the curve up to break:")
+equation("E \u2248 d\u03c3/d\u03b5 |\u2080 ,   "
+         "Toughness = \u222b\u2080^\u03b5_break \u03c3 d\u03b5", "9")
+para("The default health property whose decay defines end-of-life is the strain "
+     "capacity \u03b5_at_max, a direct measure of embrittlement (Section 1.2).")
+
+doc.add_heading("7.3.2 Global first-order Arrhenius kinetic model", level=3)
+para(
+    "The aggregated health property at the reference strain rate is fitted "
+    "across all temperatures simultaneously with a first-order decay whose rate "
+    "constant follows Arrhenius:")
+equation("P(t, T) = P_\u221e + (P\u2080 \u2212 P_\u221e) \u00b7 "
+         "exp( \u2212k(T)\u00b7t )", "10")
+equation("k(T) = exp[ ln k_ref \u2212 (E\u2090\u00b71000/R)\u00b7"
+         "(1/T \u2212 1/T_ref) ]", "11")
+para(
+    "The four parameters P\u2080 (pristine value), P_\u221e (asymptote), "
+    "ln k_ref (rate at the reference temperature T_ref) and E\u2090 (activation "
+    "energy) are found by non-linear least squares (multi-start fminsearch), "
+    "with a penalty keeping E\u2090 in the physical range 20\u2013250 kJ/mol. "
+    "Two alternative kinetic laws are also provided \u2014 a linear model "
+    "P = P\u2080 + r(T)\u00b7t and a log-linear model P = exp(P\u2080 + "
+    "r(T)\u00b7t) \u2014 both with an Arrhenius rate r(T).")
+
+doc.add_heading("7.3.3 Failure criterion and time-to-failure", level=3)
+para(
+    "End-of-life is reached when the health property falls to a fraction of its "
+    "pristine value (default 50 %):")
+equation("P_fail = f \u00b7 P\u2080   (f = 0.5)", "12")
+para("Inverting the first-order model (Eq. 10) gives the time-to-failure at any "
+     "temperature:")
+equation("t_fail(T) = \u2212 ln[ (P_fail \u2212 P_\u221e)/(P\u2080 \u2212 "
+         "P_\u221e) ] / k(T)", "13")
+
+doc.add_heading("7.3.4 Arrhenius extrapolation to the service temperature",
+                level=3)
+para(
+    "Plotted as ln(t_fail) against 1/T, the time-to-failure is linear with "
+    "slope E\u2090\u00b71000/R (Figure 5), so the service life at the storage "
+    "temperature T_s follows directly:")
+equation("ln t_fail = b + (E\u2090\u00b71000/R)\u00b7(1/T) ,   "
+         "service life = t_fail(T_s)", "14")
+
+doc.add_heading("7.3.5 Cross-validated machine-learning surrogate", level=3)
+para(
+    "In parallel with the physics-based kinetics, the pipeline trains a "
+    "data-driven surrogate that predicts the health property directly from "
+    "(temperature, days, strain rate). It evaluates several learners \u2014 "
+    "Gaussian-process regression, a bagged-tree ensemble, a support-vector "
+    "machine, a robust linear model and a built-in polynomial-ridge fallback "
+    "\u2014 by k-fold cross-validation and selects the one with the lowest "
+    "cross-validated RMSE, reporting CV-RMSE and CV-R\u00b2 (Figure 6). The "
+    "surrogate captures the combined effect of strain rate and ageing that the "
+    "single-rate kinetic fit omits, and provides an independent check on the "
+    "kinetic time-to-failure."
+)
+para(
+    "As with Code 1, a Python reproduction (generate_pipeline_results.py) "
+    "mirrors the synthetic generator, kinetic fit and ML surrogate so the "
+    "figures and Table 3 can be regenerated without MATLAB."
+)
+
+# =========================================================================
+# 8. CONCLUSION
+# =========================================================================
+doc.add_heading("8. Conclusion and Future Work", level=1)
 para(
     "This report reviewed the main modelling families for solid-propellant "
     "aging and service-life prediction \u2014 cumulative-damage failure "
     "integrals, time\u2013temperature superposition, viscoelastic finite-"
     "element analysis, chemical-aging kinetics, handbook/nomograph methods and "
     "non-destructive indicators \u2014 and consolidated their governing "
-    "equations. A compact Arrhenius / power-law service-life model was "
-    "implemented in MATLAB and reproduced in Python, yielding reproducible "
-    "predictions that capture the strong, non-linear dependence of service "
-    "life on storage temperature and that agree in order of magnitude with "
-    "published shelf-life estimates."
+    "equations. Two codes were then implemented and explained: a compact "
+    "Arrhenius / power-law screening model (Code 1) and a complete data-driven "
+    "pipeline (Code 2) that extracts mechanical properties from tensile tests, "
+    "trains a cross-validated machine-learning surrogate and fits global "
+    "first-order Arrhenius kinetics. Both were reproduced in Python and yield "
+    "reproducible predictions: Code 1 captures the strong, non-linear "
+    "dependence of service life on storage temperature, while Code 2 recovers "
+    "the ground-truth activation energy (\u2248 83 vs 80 kJ/mol) and predicts a "
+    "service life of order decades \u2014 results that agree in order of "
+    "magnitude with published shelf-life estimates."
 )
 para("Recommended future work includes:")
 bullet("letting the temperature dependence act on the failure time t_f "

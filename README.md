@@ -12,13 +12,19 @@ report/
   Service_Life_Prediction_of_Solid_Propellants.docx   <- main, editable report (Word)
   Service_Life_Prediction_of_Solid_Propellants.md     <- same content, viewable on GitHub
 code/
-  service_life_arrhenius.m   <- original MATLAB model (faithfully reproduced)
-  generate_results.py        <- Python reproduction: makes figures + results.json
-  build_report.py            <- builds the .docx from the code + figures
+  service_life_arrhenius.m       <- Code 1: Arrhenius screening model (MATLAB)
+  abcxyz.m                       <- Code 2: full data-driven SRP pipeline (MATLAB)
+  generate_results.py            <- Python reproduction of Code 1 (figures + results.json)
+  generate_pipeline_results.py   <- Python reproduction of Code 2 (figures + pipeline_results.json)
+  build_report.py                <- builds the .docx from the code + figures
 figures/
   service_life_vs_temperature.png
   acceleration_factor_vs_temperature.png
-  results.json               <- computed results table
+  sensitivity_activation_energy.png
+  pipeline_degradation_curves.png
+  pipeline_arrhenius.png
+  pipeline_ml_parity.png
+  results.json / pipeline_results.json   <- computed results
 ```
 
 ## The report
@@ -38,13 +44,17 @@ The report is organised as:
 
 ## Reproducing the results
 
-Requires Python 3 with `numpy`, `matplotlib` and `python-docx`:
+Requires Python 3 with `numpy`, `matplotlib`, `scipy`, `scikit-learn` and
+`python-docx`:
 
 ```bash
-pip3 install numpy matplotlib python-docx
-python3 code/generate_results.py   # regenerate figures + results.json
-python3 code/build_report.py       # regenerate the .docx report
+pip3 install numpy matplotlib scipy scikit-learn python-docx
+python3 code/generate_results.py            # Code 1 figures + results.json
+python3 code/generate_pipeline_results.py   # Code 2 figures + pipeline_results.json
+python3 code/build_report.py                # regenerate the .docx report
 ```
 
-The MATLAB script `code/service_life_arrhenius.m` produces the same numbers and
-the service-life-vs-temperature plot directly in MATLAB/Octave.
+The MATLAB scripts `code/service_life_arrhenius.m` (Code 1) and `code/abcxyz.m`
+(Code 2) produce the same numbers and plots directly in MATLAB/Octave. Code 2
+runs a synthetic demo out of the box: `abcxyz()` (or `abcxyz('test')` for the
+self-test).

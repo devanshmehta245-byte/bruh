@@ -34,9 +34,14 @@ property-degradation rule estimates the time for a normalised mechanical
 property to fall to a failure threshold over a range of storage temperatures.
 The model predicts a strong, non-linear reduction in service life with
 temperature — from roughly 21 years at 25 °C to under 4 months at 70 °C —
-consistent with the shelf-life ranges reported in the literature. The code,
-governing formulae and reproducible results are presented together with a
-practical decision tree for service-life assessment.
+consistent with the shelf-life ranges reported in the literature. A second,
+more complete data-driven pipeline is also presented: it reads
+accelerated-ageing tensile tests, extracts mechanical properties, trains a
+cross-validated machine-learning surrogate, fits global first-order Arrhenius
+kinetics and predicts service life (recovering an activation energy of about
+83 kJ/mol and a service life of roughly 30 years for the demonstration
+dataset). Both codes, their governing formulae and reproducible results are
+presented together with a practical decision tree for service-life assessment.
 
 ---
 
@@ -344,7 +349,13 @@ For `T_service = 300.15 K` (27 °C), `t_test = 60` days, `E_test = 1`, `n = −0
 
 ---
 
-## 5. Implementation — Code
+## 5. Implementation — Code 1: Arrhenius Screening Model
+
+Two codes are presented. **Code 1** (this section) is a compact Arrhenius
+screening model that turns a single accelerated test point into a
+service-life-versus-temperature curve. **Code 2** (§7) is a complete,
+data-driven pipeline. For each code the report gives the source listing, the
+results it produces, and an explanation of the models/formulas used.
 
 The accelerated-aging model of §4.1–4.2 is implemented in MATLAB.
 
@@ -452,7 +463,7 @@ python3 code/build_report.py         # regenerate the .docx report
 
 ---
 
-## 6. Results and Discussion
+## 6. Results and Discussion — Code 1
 
 Using *E*ₐ = 80 kJ/mol, `T_service` = 27 °C, a 60-day test point, `E_crit` = 0.3
 and `n` = −0.4, the model gives:
@@ -518,16 +529,162 @@ band.
 
 ---
 
-## 7. Conclusion and Future Work
+## 7. Code 2: Data-Driven Service-Life Pipeline
+
+Code 1 needs only a single test point. **Code 2** is a complete, self-contained
+MATLAB pipeline (`abcxyz` / `srp_pipeline`) that performs the whole workflow on
+a real accelerated-ageing campaign: it reads universal-testing-machine (UTM)
+tensile files, extracts mechanical properties from each stress–strain curve,
+aggregates replicates, trains a cross-validated machine-learning surrogate of
+the chosen health property, fits a global first-order Arrhenius kinetic model,
+and extrapolates the service life to the storage temperature. It also includes a
+synthetic-data generator (so it runs with no input files) and a built-in
+self-test.
+
+### 7.1 Source code — `abcxyz.m` (srp_pipeline)
+
+Input files are named `T<temp>_d<days>_v<rate>_s<sample>` (e.g.
+`T50_d122_v500_s3.xlsx` = 50 °C, 122 days, 500 mm/min, sample 3). Each file holds
+three UTM columns: `disp_mm`, `load_N`, `t_min`.
+
+> The full ~700-line listing is in [`code/abcxyz.m`](../code/abcxyz.m) and is
+> embedded in full in the `.docx`. Key excerpts (configuration, kinetics and
+> service-life) are shown below.
+
+```matlab
+% --- configuration (defaults) ---
+cfg.gaugeLength_mm = 47.75;   cfg.area_mm2 = 24.0;     % stress=load/24 MPa, strain=disp/47.75
+cfg.temperatures_C = [50, 60, 70];
+cfg.daysByTemp = struct('T50',[38 75 122 156 190],'T60',[16 31 46 62 78],'T70',[7 14 20 27 34]);
+cfg.strainRates_mmpmin = [5, 50, 500];   cfg.nSamples = 10;
+cfg.healthProperty = 'eps_at_max';       % strain capacity (embrittlement)
+cfg.failureMode = 'relative';            cfg.failureFraction = 0.50;
+cfg.kineticModel = 'firstorder';         cfg.serviceTemp_C = 27;
+cfg.mlLearners = {'gpr','ensemble','svm','linear','polyfallback'};
+cfg.R_gas = 8.314462618;
+
+% --- global first-order Arrhenius kinetic model ---
+kFun  = @(Tc) exp(lnkref - (Ea_kJ*1000/R) .* (1./(Tc+273.15) - 1/TrefK));
+Pfun  = @(tt, Tc) Pinf + (P0 - Pinf) .* exp(-kFun(Tc) .* tt);
+tFail = @(Pf, Tc) -log((Pf - Pinf)/(P0 - Pinf)) / kFun(Tc);
+
+% --- service life by Arrhenius extrapolation ---
+res.serviceLife_days  = tFail(P_fail, cfg.serviceTemp_C);
+res.serviceLife_years = res.serviceLife_days / 365.25;
+res.arrheniusSlope    = Ea_kJmol * 1000 / R;     % ln(t_fail) = b + slope*(1/T)
+```
+
+*Listing 3 (excerpt). See `code/abcxyz.m` for the full pipeline.*
+
+### 7.2 Results
+
+Run on the built-in synthetic campaign (3 temperatures × 5 durations × 3 strain
+rates × 10 replicates = **450 tensile files, 45 ageing conditions**,
+ground-truth *E*ₐ = 80 kJ/mol), the pipeline extracts `eps_at_max` (strain
+capacity) and produces:
+
+| Quantity | Value |
+|---|---|
+| Tensile files analysed | 450 |
+| Ageing conditions | 45 |
+| Pristine value P0 (eps_at_max) | 0.404 |
+| Failure threshold P_fail (50% of P0) | 0.202 |
+| Fitted activation energy *E*ₐ | 83.1 kJ/mol |
+| Kinetic-fit R² | 0.919 |
+| ML surrogate CV-R² (5-fold) | 0.805 |
+| t_fail @ 50 / 60 / 70 °C (days) | 1039 / 411 / 171 |
+| Predicted service life @ 27 °C | 11102 days (30.4 years) |
+
+*Table 3. Key outputs of the data-driven pipeline on the demonstration dataset.*
+
+![Degradation curves](../figures/pipeline_degradation_curves.png)
+
+*Figure 4. Health property (strain capacity) vs ageing time at the reference strain rate. Markers = replicate means ± 1 SD; solid lines = fitted first-order model; dashed line = P_fail.*
+
+![Arrhenius plot](../figures/pipeline_arrhenius.png)
+
+*Figure 5. Arrhenius plot ln(t_fail) vs 1/T. The fit recovers E_a ≈ 83 kJ/mol (ground truth 80) and extrapolates a ~30-year service life at 27 °C.*
+
+![ML parity](../figures/pipeline_ml_parity.png)
+
+*Figure 6. Cross-validated parity plot for the ML surrogate (CV-R² ≈ 0.80).*
+
+The pipeline recovers the ground-truth activation energy to within a few kJ/mol
+and predicts a service life of roughly 30 years at 27 °C. **Honest caveat:**
+because the accelerated window only spans ~10 % of the property decay, the
+first-order asymptote `P_inf` is weakly identified (the optimiser drives it below
+the physical floor while still fitting the data); the activation energy,
+per-temperature `t_fail` and extrapolated service life remain robust because they
+depend on how the decay rate scales with temperature, not on the far-field
+asymptote.
+
+### 7.3 Models and formulas used
+
+The pipeline chains together five models.
+
+**7.3.1 Feature extraction.** Each UTM curve is converted to engineering stress
+and strain via the specimen geometry (L₀ = 47.75 mm, A₀ = 24 mm²):
+
+$$\sigma = \text{load}/A_0, \qquad \varepsilon = \text{disp}/L_0 \tag{8}$$
+
+From `(ε, σ)` it extracts σ_max and ε_at_max, the initial modulus (slope over the
+first 25 % strain), a secant modulus at half-peak stress, the strain at break
+(stress < 20 % of σ_max after the peak), and the toughness:
+
+$$E \approx \left.\frac{d\sigma}{d\varepsilon}\right|_0, \qquad
+\text{Toughness} = \int_0^{\varepsilon_\text{break}} \sigma \, d\varepsilon \tag{9}$$
+
+The default health property is the strain capacity `ε_at_max` (embrittlement, §1.2).
+
+**7.3.2 Global first-order Arrhenius kinetic model.** The aggregated property at
+the reference strain rate is fitted across all temperatures at once:
+
+$$P(t,T) = P_\infty + (P_0 - P_\infty)\, e^{-k(T)\,t} \tag{10}$$
+
+$$k(T) = \exp\!\left[\ln k_\text{ref} - \frac{E_a\cdot 1000}{R}\left(\frac{1}{T} - \frac{1}{T_\text{ref}}\right)\right] \tag{11}$$
+
+The four parameters (P₀, P∞, ln k_ref, *E*ₐ) are found by multi-start non-linear
+least squares (`fminsearch`) with a penalty keeping *E*ₐ in 20–250 kJ/mol.
+Alternative **linear** (`P = P₀ + r(T)·t`) and **log-linear**
+(`P = exp(P₀ + r(T)·t)`) laws are also provided.
+
+**7.3.3 Failure criterion and time-to-failure.**
+
+$$P_\text{fail} = f\cdot P_0 \;(f=0.5), \qquad
+t_\text{fail}(T) = -\frac{\ln\!\frac{P_\text{fail}-P_\infty}{P_0-P_\infty}}{k(T)} \tag{12-13}$$
+
+**7.3.4 Arrhenius extrapolation.** `ln(t_fail)` is linear in `1/T` with slope
+`E_a·1000/R`, so the service life is `t_fail(T_s)`:
+
+$$\ln t_\text{fail} = b + \frac{E_a\cdot 1000}{R}\cdot\frac{1}{T} \tag{14}$$
+
+**7.3.5 Cross-validated ML surrogate.** In parallel, a data-driven surrogate
+predicts the health property from `(temp, days, strain_rate)`. It evaluates
+Gaussian-process regression, a bagged-tree ensemble, an SVM, a robust linear
+model and a polynomial-ridge fallback by k-fold cross-validation and selects the
+lowest CV-RMSE (reporting CV-R²). It captures the strain-rate effect the
+single-rate kinetic fit omits and cross-checks the kinetic `t_fail`.
+
+A Python reproduction (`code/generate_pipeline_results.py`) mirrors the
+generator, kinetic fit and ML surrogate so the figures and Table 3 regenerate
+without MATLAB.
+
+---
+
+## 8. Conclusion and Future Work
 
 This report reviewed the main modelling families for solid-propellant aging and
 service-life prediction — cumulative-damage failure integrals, time–temperature
 superposition, viscoelastic finite-element analysis, chemical-aging kinetics,
 handbook/nomograph methods and non-destructive indicators — and consolidated
-their governing equations. A compact Arrhenius / power-law service-life model was
-implemented in MATLAB and reproduced in Python, yielding reproducible
-predictions that capture the strong, non-linear dependence of service life on
-storage temperature and that agree in order of magnitude with published
+their governing equations. Two codes were implemented and explained: a compact
+Arrhenius / power-law screening model (Code 1) and a complete data-driven
+pipeline (Code 2) that extracts mechanical properties from tensile tests, trains
+a cross-validated ML surrogate and fits global first-order Arrhenius kinetics.
+Both were reproduced in Python: Code 1 captures the strong, non-linear
+dependence of service life on storage temperature, while Code 2 recovers the
+ground-truth activation energy (≈ 83 vs 80 kJ/mol) and predicts a service life
+of order decades — results that agree in order of magnitude with published
 shelf-life estimates.
 
 Recommended future work:
