@@ -1,0 +1,56 @@
+[
+  {
+    "temperature_C": 25.0,
+    "acceleration_factor": 6.3776,
+    "tf_days": 1217.16,
+    "service_life_years": 21.253
+  },
+  {
+    "temperature_C": 27.0,
+    "acceleration_factor": 5.1435,
+    "tf_days": 1217.16,
+    "service_life_years": 17.14
+  },
+  {
+    "temperature_C": 30.0,
+    "acceleration_factor": 3.7452,
+    "tf_days": 1217.16,
+    "service_life_years": 12.481
+  },
+  {
+    "temperature_C": 35.0,
+    "acceleration_factor": 2.2377,
+    "tf_days": 1217.16,
+    "service_life_years": 7.457
+  },
+  {
+    "temperature_C": 40.0,
+    "acceleration_factor": 1.3592,
+    "tf_days": 1217.16,
+    "service_life_years": 4.529
+  },
+  {
+    "temperature_C": 45.0,
+    "acceleration_factor": 0.8386,
+    "tf_days": 1217.16,
+    "service_life_years": 2.795
+  },
+  {
+    "temperature_C": 50.0,
+    "acceleration_factor": 0.5252,
+    "tf_days": 1217.16,
+    "service_life_years": 1.75
+  },
+  {
+    "temperature_C": 60.0,
+    "acceleration_factor": 0.2149,
+    "tf_days": 1217.16,
+    "service_life_years": 0.716
+  },
+  {
+    "temperature_C": 70.0,
+    "acceleration_factor": 0.0926,
+    "tf_days": 1217.16,
+    "service_life_years": 0.309
+  }
+]

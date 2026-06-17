@@ -1,0 +1,19 @@
+{
+  "n_files": 450,
+  "n_conditions": 45,
+  "P0": 0.4045,
+  "Pinf": -804.4904,
+  "P_fail": 0.2022,
+  "Ea_kJmol": 83.07,
+  "kinetic_R2": 0.9193,
+  "ml_R2": 0.8046,
+  "ml_RMSE": 0.01503,
+  "serviceTemp_C": 27.0,
+  "serviceLife_days": 11101.6,
+  "serviceLife_years": 30.39,
+  "tfail_kinetic_days": {
+    "50": 1038.7,
+    "60": 410.6,
+    "70": 171.4
+  }
+}
