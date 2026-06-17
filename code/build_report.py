@@ -697,40 +697,87 @@ para(
 
 doc.add_heading("4.3 Time\u2013temperature superposition (WLF)", level=2)
 para(
-    "For visco-elastic data, responses measured at temperature T are shifted "
-    "onto a master curve at reference temperature T_ref using the Williams\u2013"
-    "Landel\u2013Ferry shift factor a_T [2]:")
+    "A visco-elastic propellant has no single stiffness: its response depends "
+    "on how fast and for how long it is loaded. The time\u2013temperature "
+    "superposition (TTS) principle states that raising the temperature is "
+    "equivalent to stretching the time scale, so a property measured at "
+    "temperature T over an experimentally accessible time window can be mapped "
+    "onto an equivalent response at a reference temperature T_ref but at a "
+    "different (usually much longer) effective time. The mapping is a horizontal "
+    "shift, by a factor a_T, of the data along the logarithmic-time axis. "
+    "Stacking the shifted segments produces a single \u201cmaster curve\u201d "
+    "that can span ten or more decades of effective time from only a few hours "
+    "of testing per temperature.")
+para(
+    "For amorphous polymers above their glass transition the shift factor "
+    "follows the empirical Williams\u2013Landel\u2013Ferry (WLF) equation [2]:")
 equation("log\u2081\u2080(a_T) = \u2212C\u2081 (T \u2212 T_ref) / "
          "( C\u2082 + T \u2212 T_ref )", "5")
 para(
-    "where C\u2081 and C\u2082 are material constants. The shift factor lets a "
-    "single relaxation master curve represent behaviour across the full "
-    "temperature range of interest."
+    "where C\u2081 and C\u2082 are material constants fitted to the shift "
+    "factors needed to overlay the segments (the \u201cuniversal\u201d values "
+    "C\u2081 \u2248 17.4 and C\u2082 \u2248 51.6 K, with T_ref taken near the "
+    "glass-transition temperature, are common starting points). Physically the "
+    "WLF form arises from free-volume theory: as temperature rises above T_g "
+    "the polymer\u2019s free volume grows, molecular mobility increases "
+    "sharply, and relaxation accelerates. The practical payoff is twofold: a "
+    "single master curve characterises the binder across the whole service "
+    "temperature range, and the same shift factors let short, warm tests "
+    "predict slow, cool behaviour \u2014 the visco-elastic analogue of the "
+    "Arrhenius acceleration used for chemical aging in Section 4.1."
 )
 
 doc.add_heading("4.4 Viscoelastic relaxation modulus (Prony series)", level=2)
 para(
-    "The relaxation modulus is commonly represented by a Prony series fitted "
-    "to DMA data [9], which is the constitutive input for finite-element "
-    "structural analyses [3]:")
+    "To use the visco-elastic behaviour in a stress analysis it must be written "
+    "as a constitutive law. The standard form is the relaxation modulus E(t): "
+    "the stress response to a suddenly applied, then held, unit strain. It "
+    "starts at the instantaneous (glassy) modulus and decays toward the "
+    "long-term (rubbery) modulus as the network relaxes. The most convenient "
+    "representation \u2014 because it corresponds to a generalised Maxwell "
+    "model of springs and dashpots and integrates efficiently in finite-element "
+    "codes \u2014 is a Prony series, a sum of decaying exponentials [9]:")
 equation("E(t) = E_\u221e + \u03a3\u1d62 E\u1d62 \u00b7 exp( \u2212t / "
          "\u03c4\u1d62 )", "6")
 para(
-    "with long-term modulus E_\u221e, Prony coefficients E\u1d62 and relaxation "
-    "times \u03c4\u1d62."
+    "Here E_\u221e is the long-term (equilibrium) modulus, each E\u1d62 is the "
+    "stiffness contribution of one Maxwell element, and \u03c4\u1d62 is its "
+    "relaxation time. A spectrum of relaxation times \u03c4\u1d62, typically "
+    "spaced one per decade, lets the series reproduce the broad relaxation "
+    "behaviour of a real binder. The coefficients are obtained by fitting "
+    "Eq. (6) (or its frequency-domain counterpart, the storage and loss moduli) "
+    "to dynamic-mechanical-analysis (DMA) data [9]. Combined with the WLF shift "
+    "factor of Section 4.3, the same Prony series describes the material at any "
+    "temperature, and it is exactly the input the non-linear visco-elastic "
+    "finite-element models [3] need to compute the grain\u2019s hoop strain and "
+    "case-bond stress."
 )
 
 doc.add_heading("4.5 Linear cumulative damage (Miner / Laheru)", level=2)
 para(
-    "Linear cumulative-damage models [1], [8] sum fractional damage over the "
-    "load/temperature history and predict failure when the total reaches "
-    "unity:")
+    "A real motor is never held at one condition: it sees a sequence of "
+    "temperatures, soaks and load events, each doing a little damage. Linear "
+    "cumulative-damage (LCD) models [1], [8] \u2014 the propellant analogue of "
+    "Miner\u2019s rule in metal fatigue \u2014 turn that history into a single "
+    "failure verdict. The history is divided into blocks j; in each block the "
+    "material spends a time t\u2c7c under a condition whose stand-alone "
+    "time-to-failure is t_f,\u2c7c. The fraction t\u2c7c / t_f,\u2c7c is the "
+    "damage \u201cused up\u201d in that block, and the damage fractions are "
+    "summed:")
 equation("D = \u03a3\u2c7c ( t\u2c7c / t_f,\u2c7c )  ;  failure when D \u2265 1",
          "7")
 para(
-    "where t\u2c7c is the time spent under condition j and t_f,\u2c7c is the "
-    "time-to-failure under that condition alone. Eq. (4) supplies the "
-    "single-condition t_f used in such summations."
+    "Failure is predicted when the accumulated damage D reaches unity (100 % of "
+    "the material\u2019s life consumed). The model\u2019s great convenience is "
+    "that it needs only the single-condition lives t_f,\u2c7c, which the "
+    "Arrhenius/power-law law of Eqs. (1)\u2013(4) supplies for each temperature "
+    "block. Its limitation \u2014 and the reason Kunz [8] cautions over "
+    "parameter bias \u2014 is the linearity assumption: it ignores any "
+    "interaction or sequence effect between blocks (whether a hot soak makes a "
+    "later cold cycle more or less damaging), and the prediction is only as "
+    "good as the regression-fitted t_f,\u2c7c values that feed it. More "
+    "elaborate non-linear damage laws relax the equal-weighting assumption at "
+    "the cost of additional parameters."
 )
 
 doc.add_heading("4.6 Worked example (one temperature)", level=2)

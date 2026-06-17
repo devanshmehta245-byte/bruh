@@ -274,8 +274,7 @@ factor. For propellant binders *E*ₐ is typically **60–100 kJ/mol** (80 kJ/mo
 used here). *A*₀ cancels in the ratio of rates at the test and service
 temperatures — the **acceleration factor**:
 
-$$\mathrm{AF} = \frac{k(T_\text{test})}{k(T_\text{service})}
-   = \exp\!\left[\frac{E_a}{R}\left(\frac{1}{T_\text{service}} - \frac{1}{T_\text{test}}\right)\right] \tag{2}$$
+$$\mathrm{AF} = \dfrac{k(T_\text{test})}{k(T_\text{service})} = \exp\!\left[\dfrac{E_a}{R}\left(\dfrac{1}{T_\text{service}} - \dfrac{1}{T_\text{test}}\right)\right] \tag{2}$$
 
 AF > 1 means a short hot test reproduces a long period of cool storage — the
 basis of accelerated aging. Because AF depends on 1/T inside an exponential it
@@ -312,26 +311,61 @@ the whole life and a monotonic curve — the latter exactly what Adel and Liang
 [10] relax.
 
 ### 4.3 Time–temperature superposition (WLF)
-Visco-elastic responses at temperature `T` shift onto a master curve at `T_ref`
-via the WLF shift factor `a_T` [2]:
+A visco-elastic propellant has no single stiffness — its response depends on how
+fast and how long it is loaded. **Time–temperature superposition (TTS)** says
+raising temperature is equivalent to stretching the time scale, so a property
+measured at `T` over an accessible time window maps onto an equivalent response
+at a reference temperature `T_ref` but at a much longer effective time. The
+mapping is a horizontal shift by a factor `a_T` along the log-time axis;
+stacking the shifted segments builds one **master curve** spanning 10+ decades of
+effective time from only hours of testing per temperature. For amorphous
+polymers above their glass transition, the shift factor follows the empirical
+**Williams–Landel–Ferry (WLF)** equation [2]:
 
-$$\log_{10}(a_T) = -\frac{C_1\,(T - T_\text{ref})}{C_2 + (T - T_\text{ref})} \tag{5}$$
+$$\log_{10}(a_T) = -\dfrac{C_1\,(T - T_\text{ref})}{C_2 + (T - T_\text{ref})} \tag{5}$$
 
-with material constants `C₁`, `C₂`.
+`C₁`, `C₂` are material constants fitted to the overlay shifts (universal values
+`C₁ ≈ 17.4`, `C₂ ≈ 51.6 K` near `T_g` are common starting points). Physically the
+form comes from **free-volume theory**: above `T_g`, free volume and mobility
+rise sharply and relaxation accelerates. The payoff: one master curve describes
+the binder across the whole service range, and warm short tests predict cool slow
+behaviour — the visco-elastic analogue of the Arrhenius acceleration in §4.1.
 
 ### 4.4 Viscoelastic relaxation modulus (Prony series)
-The relaxation modulus is represented by a Prony series fitted to DMA data [9],
-the constitutive input for FE analyses [3]:
+To use the visco-elastic behaviour in a stress analysis it must be a
+constitutive law. The standard form is the **relaxation modulus** `E(t)`: the
+stress response to a suddenly applied, then held, unit strain. It starts at the
+instantaneous (glassy) modulus and decays to the long-term (rubbery) modulus as
+the network relaxes. The convenient representation — corresponding to a
+generalised Maxwell model and integrating efficiently in FE codes — is a **Prony
+series**, a sum of decaying exponentials [9]:
 
-$$E(t) = E_\infty + \sum_i E_i \, \exp\!\left(-\frac{t}{\tau_i}\right) \tag{6}$$
+$$E(t) = E_\infty + \sum_i E_i \, \exp(-t/\tau_i) \tag{6}$$
+
+`E∞` is the long-term modulus, each `Eᵢ` is one Maxwell element's stiffness and
+`τᵢ` its relaxation time (typically one per decade). The coefficients are fitted
+to DMA data (storage/loss moduli vs frequency) [9]. Combined with the WLF shift
+factor (§4.3), the same series describes the material at any temperature and is
+exactly the input the non-linear viscoelastic FE models [3] need to compute hoop
+strain and case-bond stress.
 
 ### 4.5 Linear cumulative damage (Miner / Laheru)
-Linear cumulative-damage models [1], [8] sum fractional damage over the load/
-temperature history; failure occurs at unity:
+A real motor never sits at one condition: it sees a sequence of temperatures,
+soaks and load events, each doing a little damage. **Linear cumulative-damage
+(LCD)** models [1], [8] — the propellant analogue of Miner's fatigue rule — turn
+that history into a single verdict. The history is split into blocks `j`; in
+block `j` the material spends time `tⱼ` under a condition whose stand-alone
+time-to-failure is `t_f,ⱼ`, so the fraction `tⱼ / t_f,ⱼ` is the damage used up:
 
-$$D = \sum_j \frac{t_j}{t_{f,j}}, \qquad \text{failure when } D \ge 1 \tag{7}$$
+$$D = \sum_j \dfrac{t_j}{t_{f,j}}, \qquad \text{failure when } D \ge 1 \tag{7}$$
 
-Eq. (4) supplies the single-condition `t_f` used in such summations.
+Failure is predicted when accumulated damage `D` reaches unity (100 % of life
+consumed). The model only needs the single-condition lives `t_f,ⱼ`, which the
+Arrhenius/power-law law of Eqs. (1)–(4) supplies per temperature block. Its
+limitation — and why Kunz [8] warns of parameter bias — is the **linearity
+assumption**: it ignores interaction/sequence effects between blocks, and is only
+as good as the regression-fitted `t_f,ⱼ` values. Non-linear damage laws relax the
+equal-weighting assumption at the cost of more parameters.
 
 ### 4.6 Worked example (one temperature)
 For `T_service = 300.15 K` (27 °C), `t_test = 60` days, `E_test = 1`, `n = −0.4`,
@@ -631,8 +665,7 @@ From `(ε, σ)` it extracts σ_max and ε_at_max, the initial modulus (slope ove
 first 25 % strain), a secant modulus at half-peak stress, the strain at break
 (stress < 20 % of σ_max after the peak), and the toughness:
 
-$$E \approx \left.\frac{d\sigma}{d\varepsilon}\right|_0, \qquad
-\text{Toughness} = \int_0^{\varepsilon_\text{break}} \sigma \, d\varepsilon \tag{9}$$
+$$E \approx \left.\dfrac{d\sigma}{d\varepsilon}\right|_0, \qquad \text{Toughness} = \int_0^{\varepsilon_\text{break}} \sigma \, d\varepsilon \tag{9}$$
 
 The default health property is the strain capacity `ε_at_max` (embrittlement, §1.2).
 
@@ -650,8 +683,7 @@ Alternative **linear** (`P = P₀ + r(T)·t`) and **log-linear**
 
 **7.3.3 Failure criterion and time-to-failure.**
 
-$$P_\text{fail} = f\cdot P_0 \;(f=0.5), \qquad
-t_\text{fail}(T) = -\frac{\ln\!\frac{P_\text{fail}-P_\infty}{P_0-P_\infty}}{k(T)} \tag{12-13}$$
+$$P_\text{fail} = f\cdot P_0 \;\; (f=0.5), \qquad t_\text{fail}(T) = -\,\dfrac{\ln\!\big[(P_\text{fail}-P_\infty)/(P_0-P_\infty)\big]}{k(T)} \tag{12,13}$$
 
 **7.3.4 Arrhenius extrapolation.** `ln(t_fail)` is linear in `1/T` with slope
 `E_a·1000/R`, so the service life is `t_fail(T_s)`:
